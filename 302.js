@@ -72,7 +72,7 @@ async function handler(request) {
 
         // Redirect to homepage
         if (pathname_arr[1].length === 0)
-            return Response.redirect('https://mirrorz.org', 302);
+            return Response.redirect('https://mirrorz.org/about', 302);
 
         // Query influxdb 2.x
         response = await fetch('http://localhost:8086/api/v2/query?org=your-org', {
