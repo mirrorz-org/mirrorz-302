@@ -102,6 +102,6 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
 * endpoint
   - The first endpoint is the default endpoint. If all the endpoints have the same preference, we choose the first one
   - IPv4/IPv6 endpoint applies only when the user requests `4.mirrors.edu.cn` or `6.mirrors.edu.cn`
-  - Private mirror site may use a private IP but declare a public range. For example, suppose USTC has a private IP range of 10.0.0.0/8, USTC mirror is located at 10.0.0.1:8080, and when one user inside USTC accesss `mirrors.edu.cn`, its IP is NATed into 202.0.0.0/24, then `mirrors.edu.cn` can resolve the request into `ustccampus` endpoint.
+  - Private mirror site may use a private IP but declare a public range. For example, suppose USTC has a private IP range of 10.0.0.0/8, USTC mirror is located at 10.0.0.1:8080, and when one user inside USTC accesses `mirrors.edu.cn`, its IP is NATed into 202.0.0.0/24, then `mirrors.edu.cn` can resolve the request into `ustccampus` endpoint.
 * site/mirrors
   - This is used by `mirrors.edu.cn` monitor, while `site` and `mirrors` in `mirrorz.json` is only used by frontend
