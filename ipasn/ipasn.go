@@ -100,7 +100,7 @@ func Get(ip string) (value string) {
         }
         logger.Debugf("depth: %d value: %s bit: %d\n", depth, root.value, bit)
     }
-    logger.Infof("IP: %s %s\n", ip, value)
+    logger.Debugf("IP: %s %s\n", ip, value)
     return
 }
 
