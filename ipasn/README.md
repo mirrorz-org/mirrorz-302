@@ -48,10 +48,10 @@ cat mirrors.log-20210727 | cut -d ' ' -f 1,10 > ip-size.log
 cat ip-size.log | awk '{x[$1]+=$2} END {for(k in x){print k,x[k]}}' | sort -rnk2 > ip-sum.log
 cat > ipasn.sh <<EOF
 while read p; do
-    ip=$(echo $p | awk '{print $1;}')
-    sum=$(echo $p | awk '{print $2;}')
-    echo $(curl -s "http://localhost:8889/$ip") $ip $sum
-done < $1
+    ip=\$(echo \$p | awk '{print \$1;}')
+    sum=\$(echo \$p | awk '{print \$2;}')
+    echo \$(curl -s "http://localhost:8889/\$ip") \$ip \$sum
+done < \$1
 EOF
 bash ipasn.sh ip-sum.log > asn-ip-sum.log
 cat asn-ip-sum.log | awk '{x[$1]+=$3} END {for(k in x){print k,x[k]}}' | sort -rnk2 > asn-sum.log
