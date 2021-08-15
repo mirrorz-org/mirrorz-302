@@ -247,6 +247,11 @@ func (l Score) DeltaOnly() bool {
     return l.pos == 0 && l.mask == 0 && l.as == 0
 }
 
+
+func (l Score) EqualExceptDelta(r Score) bool {
+    return l.pos == r.pos && l.mask == r.mask && l.as == r.as
+}
+
 func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr string, err error) {
     traceFunc := func(s string) {
         logger.Debugf(s);
@@ -390,7 +395,7 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
             traceFunc(fmt.Sprintf("scores: %d %v\n", index, score))
         }
         var optimalScores Scores
-        allDelta := true;
+        allDelta := true
         for i, l := range scores {
             dominated := false
             for j, r := range scores {
@@ -409,18 +414,32 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
             logger.Warningf("Resolve optimal scores empty, algorithm implemented error")
             resolve = scores[0].resolve
             repo = scores[0].repo
-        } else if allDelta {
+        }
+        allEqualExceptDelta := true
+        for _, l := range optimalScores {
+            if (!l.EqualExceptDelta(optimalScores[0])) { // [0] valid ensured by previous if
+                allEqualExceptDelta = false
+            }
+        }
+        if allEqualExceptDelta || allDelta {
+            var candidateScores Scores
+            if (allDelta) {
+                // Note: allDelta == true implies allEqualExceptDelta == true
+                candidateScores = scores
+            } else {
+                candidateScores = optimalScores
+            }
             // randomly choose one mirror from the optimal half
             // len(optimalScores) == 1
-            sort.Sort(scores)
-            for index, score := range scores {
+            sort.Sort(candidateScores)
+            for index, score := range candidateScores {
                 traceFunc(fmt.Sprintf("sorted delta scores: %d %v\n", index, score))
             }
-            randRange := (len(scores)+1)/2
+            randRange := (len(candidateScores)+1)/2
             randIndex := rand.Intn(randRange)
-            traceFunc(fmt.Sprintf("randomly chosen score: (%d/%d) %v\n", randIndex, randRange-1, scores[randIndex]))
-            resolve = scores[randIndex].resolve
-            repo = scores[randIndex].repo
+            traceFunc(fmt.Sprintf("randomly chosen score: (%d/%d) %v\n", randIndex, randRange-1, candidateScores[randIndex]))
+            resolve = candidateScores[randIndex].resolve
+            repo = candidateScores[randIndex].repo
         } else {
             // randomly choose one mirror not dominated by others
             for index, score := range optimalScores {
