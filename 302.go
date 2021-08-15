@@ -277,8 +277,8 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     traceFunc(fmt.Sprintf("ASN: %s\n", asn))
     traceFunc(fmt.Sprintf("Scheme: %s\n", scheme))
 
-    remoteIPv4 := remoteIP.To4() == nil;
-    remoteIPv6 := remoteIP.To16() == nil;
+    remoteIPv4 := remoteIP.To4() != nil;
+    remoteIPv6 := remoteIP.To16() != nil;
 
     if err == nil {
         for res.Next() {
