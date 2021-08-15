@@ -94,7 +94,7 @@ func LoadConfig (path string, debug bool) (err error) {
     return
 }
 
-var AbbrToEndpoints map[string][]Endpoint
+var AbbrToEndpoints map[string][]EndpointInternal
 
 func Handler(w http.ResponseWriter, r *http.Request) {
     // [1:] for no heading `/`
@@ -171,10 +171,6 @@ type Score struct {
     // payload
     resolve string
     repo string
-
-    // aux
-    v4 bool
-    v6 bool
 }
 
 // For reference on delta precedence
@@ -264,7 +260,7 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
         |> filter(fn: (r) => r._measurement == "repo" and r.name == "%s")
         |> map(fn: (r) => ({_value:r._value,mirror:r.mirror,_time:r._time,path:r.url}))
         |> tail(n:1)`, config.InfluxDBBucket, cname)
-    // SQL INJECTION!!!
+    // SQL INJECTION!!! (use read only token)
 
     res, err := queryAPI.Query(context.Background(), query)
 
@@ -275,9 +271,14 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     labels := Host(r)
     remoteIP := IP(r)
     asn := ASN(remoteIP)
+    scheme := Scheme(r)
     traceFunc(fmt.Sprintf("labels: %v\n", labels))
     traceFunc(fmt.Sprintf("IP: %v\n", remoteIP))
     traceFunc(fmt.Sprintf("ASN: %s\n", asn))
+    traceFunc(fmt.Sprintf("Scheme: %s\n", scheme))
+
+    remoteIPv4 := remoteIP.To4() == nil;
+    remoteIPv6 := remoteIP.To16() == nil;
 
     if err == nil {
         for res.Next() {
@@ -289,63 +290,63 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
                 var scoresEndpoints Scores
                 for _, endpoint := range endpoints {
                     traceFunc(fmt.Sprintf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label))
-                    score := Score {pos: 0, as: 0, mask: 0, delta: 0, v4: false, v6: false}
+                    if remoteIPv4 && !endpoint.Filter.V4 {
+                        traceFunc(fmt.Sprintf("    not v4 endpoint\n"))
+                        continue
+                    }
+                    if remoteIPv6 && !endpoint.Filter.V6 {
+                        traceFunc(fmt.Sprintf("    not v6 endpoint\n"))
+                        continue
+                    }
+                    if scheme == "http" && !endpoint.Filter.NOSSL {
+                        traceFunc(fmt.Sprintf("    not nossl endpoint\n"))
+                        continue
+                    }
+                    if scheme == "https" && !endpoint.Filter.SSL {
+                        traceFunc(fmt.Sprintf("    not ssl endpoint\n"))
+                        continue
+                    }
+                    if (len(labels) != 0 && labels[len(labels)-1] == "4") && !endpoint.Filter.V4Only {
+                        traceFunc(fmt.Sprintf("    label v4only but endpoint not v4only\n"))
+                        continue
+                    }
+                    if (len(labels) != 0 && labels[len(labels)-1] == "6") && !endpoint.Filter.V6Only {
+                        traceFunc(fmt.Sprintf("    label v6only but endpoint not v6only\n"))
+                        continue
+                    }
+                    score := Score {pos: 0, as: 0, mask: 0, delta: 0}
                     score.delta = int(record.Value().(int64))
                     for index, label := range labels {
                         if label == endpoint.Label {
                             score.pos = index + 1
                         }
                     }
-                    for _, indicator := range endpoint.Range {
-                        if indicator == "V4" {
-                            score.v4 = true
-                        } else if indicator == "V6" {
-                            score.v6 = true
-                        } else if strings.HasPrefix(indicator, "AS") {
-                            if indicator[2:] == asn {
-                                score.as = 1
-                            }
-                        } else {
-                            _, ipnet, _ := net.ParseCIDR(indicator)
-                            if remoteIP != nil && ipnet != nil && ipnet.Contains(remoteIP) {
-                                mask, _ := ipnet.Mask.Size()
-                                if mask > score.mask {
-                                    score.mask = mask
-                                }
+                    for _, endpointASN := range endpoint.RangeASN {
+                        if endpointASN == asn {
+                            score.as = 1
+                        }
+                    }
+                    for _, ipnet := range endpoint.RangeCIDR {
+                        if remoteIP != nil && ipnet.Contains(remoteIP) {
+                            mask, _ := ipnet.Mask.Size()
+                            if mask > score.mask {
+                                score.mask = mask
                             }
                         }
                     }
-
 
                     score.resolve = endpoint.Resolve
                     score.repo = record.ValueByKey("path").(string)
                     traceFunc(fmt.Sprintf("    score: %v\n", score))
 
-                    if score.delta < -60*60*24*3 { // 3 days
-                        traceFunc(fmt.Sprintf("    not up-to-date enough\n"))
-                        continue
-                    }
+                    //if score.delta < -60*60*24*3 { // 3 days
+                    //    traceFunc(fmt.Sprintf("    not up-to-date enough\n"))
+                    //    continue
+                    //}
                     if !endpoint.Public && score.mask == 0 && score.as == 0 {
                         traceFunc(fmt.Sprintf("    not hit private\n"))
                         continue
                     }
-                    if !score.v4 && len(labels) != 0 && labels[len(labels)-1] == "4" {
-                        traceFunc(fmt.Sprintf("    not hit v4\n"))
-                        continue
-                    }
-                    if !score.v6 && len(labels) != 0 && labels[len(labels)-1] == "6" {
-                        traceFunc(fmt.Sprintf("    not hit v6\n"))
-                        continue
-                    }
-                    if score.v4 && score.pos == 0 && (len(labels) == 0 || len(labels) != 0 && labels[len(labels)-1] != "4") {
-                        traceFunc(fmt.Sprintf("    label not v4only or specify v4 endpoint\n"))
-                        continue
-                    }
-                    if score.v6 && score.pos == 0 && (len(labels) == 0 || len(labels) != 0 && labels[len(labels)-1] != "6") {
-                        traceFunc(fmt.Sprintf("    label not v6only or specify v6 endpoint\n"))
-                        continue
-                    }
-
                     scoresEndpoints = append(scoresEndpoints, score)
                 }
 
@@ -448,7 +449,25 @@ type Endpoint struct {
     Label string `json:"label"`
     Resolve string `json:"resolve"`
     Public bool `json:"public"`
+    Filter []string `json:"filter"`
     Range []string `json:"range"`
+}
+
+type EndpointInternal struct {
+    Label string
+    Resolve string
+    Public bool
+    Filter struct {
+        V4 bool
+        V4Only bool
+        V6 bool
+        V6Only bool
+        SSL bool
+        NOSSL bool
+        SPECIAL []string
+    }
+    RangeASN []string
+    RangeCIDR []*net.IPNet
 }
 
 type Site struct {
@@ -459,6 +478,45 @@ type MirrorZD struct {
     Extension string `json:"extension"`
     Endpoints []Endpoint `json:"endpoints"`
     Site Site `json:"site"`
+}
+
+func ProcessEndpoint (e Endpoint) (i EndpointInternal) {
+    i.Label = e.Label
+    i.Resolve = e.Resolve
+    i.Public = e.Public
+    // Filter
+    for _, d := range e.Filter {
+        if d == "V4" {
+            i.Filter.V4 = true
+        } else if d == "V6" {
+            i.Filter.V6 = true
+        } else if d == "NOSSL" {
+            i.Filter.NOSSL = true
+        } else if d == "SSL" {
+            i.Filter.SSL = true
+        } else {
+            // TODO: more structured
+            i.Filter.SPECIAL = append(i.Filter.SPECIAL, d)
+        }
+    }
+    if i.Filter.V4 && !i.Filter.V6 {
+        i.Filter.V4Only = true
+    }
+    if !i.Filter.V4 && i.Filter.V6 {
+        i.Filter.V6Only = true
+    }
+    // Range
+    for _, d := range e.Range {
+        if strings.HasPrefix(d, "AS") {
+            i.RangeASN = append(i.RangeASN, d[2:])
+        } else {
+            _, ipnet, _ := net.ParseCIDR(d)
+            if ipnet != nil {
+                i.RangeCIDR = append(i.RangeCIDR, ipnet)
+            }
+        }
+    }
+    return
 }
 
 func LoadMirrorZD (path string) (err error) {
@@ -483,7 +541,11 @@ func LoadMirrorZD (path string) (err error) {
             continue
         }
         logger.Infof("%+v\n", data)
-        AbbrToEndpoints[data.Site.Abbr] = data.Endpoints
+        var endpointsInternal []EndpointInternal;
+        for _, e := range data.Endpoints {
+            endpointsInternal = append(endpointsInternal, ProcessEndpoint(e))
+        }
+        AbbrToEndpoints[data.Site.Abbr] = endpointsInternal
     }
     return
 }
@@ -507,7 +569,7 @@ func main() {
 
     OpenInfluxDB()
 
-    AbbrToEndpoints = make(map[string][]Endpoint)
+    AbbrToEndpoints = make(map[string][]EndpointInternal)
     LoadMirrorZD(config.MirrorZDDirectory)
 
     http.HandleFunc("/", Handler)
