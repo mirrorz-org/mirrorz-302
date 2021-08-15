@@ -21,6 +21,10 @@ import (
     "github.com/juju/loggo"
 
     "sort"
+
+    "os/signal"
+    "os"
+    "syscall"
 )
 
 type Config struct {
@@ -590,6 +594,15 @@ func main() {
 
     AbbrToEndpoints = make(map[string][]EndpointInternal)
     LoadMirrorZD(config.MirrorZDDirectory)
+
+    signalChannel := make(chan os.Signal, 1)
+    signal.Notify(signalChannel, syscall.SIGHUP)
+    go func(){
+        for _ = range signalChannel {
+            logger.Infof("Got A HUP Signal! Now Reloading Conf....\n")
+            LoadMirrorZD(config.MirrorZDDirectory)
+        }
+    }()
 
     http.HandleFunc("/", Handler)
     logger.Errorf("HTTP Server error: %v\n", http.ListenAndServe(config.HTTPBindAddress, nil))
