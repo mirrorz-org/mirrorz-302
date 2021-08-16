@@ -460,7 +460,6 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     if (strings.HasPrefix(repo, "http://") || strings.HasPrefix(repo, "https://")) {
         url = repo
     } else {
-        scheme := Scheme(r)
         url = fmt.Sprintf("%s://%s%s", scheme, resolve, repo)
     }
     logger.Infof("Resolved: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
