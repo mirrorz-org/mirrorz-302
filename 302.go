@@ -287,7 +287,6 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     traceFunc(fmt.Sprintf("Scheme: %s\n", scheme))
 
     remoteIPv4 := remoteIP.To4() != nil;
-    remoteIPv6 := remoteIP.To16() != nil;
 
     if err == nil {
         for res.Next() {
@@ -303,7 +302,7 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
                         traceFunc(fmt.Sprintf("    not v4 endpoint\n"))
                         continue
                     }
-                    if remoteIPv6 && !endpoint.Filter.V6 {
+                    if !remoteIPv4 && !endpoint.Filter.V6 {
                         traceFunc(fmt.Sprintf("    not v6 endpoint\n"))
                         continue
                     }
