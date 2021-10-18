@@ -35,6 +35,7 @@ type Config struct {
     IPASNURL string `json:"ipasn-url"`
     HTTPBindAddress string `json:"http-bind-address"`
     MirrorZDDirectory string `json:"mirrorz-d-directory"`
+    Homepage string `json:"homepage"`
     DomainLength int `json:"domain-length"`
 }
 
@@ -83,6 +84,9 @@ func LoadConfig (path string, debug bool) (err error) {
     if (config.MirrorZDDirectory == "") {
         config.MirrorZDDirectory = "mirrorz.d"
     }
+    if (config.Homepage == "") {
+        config.Homepage = "mirrorz.org"
+    }
     if (config.DomainLength == 0) {
         // 4 for *.mirrors.edu.cn
         // 4 for *.m.mirrorz.org
@@ -94,11 +98,13 @@ func LoadConfig (path string, debug bool) (err error) {
     logger.Debugf("LoadConfig IPASN URL: %s\n", config.IPASNURL)
     logger.Debugf("LoadConfig HTTP Bind Address: %s\n", config.HTTPBindAddress)
     logger.Debugf("LoadConfig MirrorZ D Directory: %s\n", config.MirrorZDDirectory)
+    logger.Debugf("LoadConfig Homepage: %s\n", config.Homepage)
     logger.Debugf("LoadConfig Domain Length: %d\n", config.DomainLength)
     return
 }
 
 var AbbrToEndpoints map[string][]EndpointInternal
+var LabelToResolve map[string]string
 
 func Handler(w http.ResponseWriter, r *http.Request) {
     // [1:] for no heading `/`
@@ -106,8 +112,18 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 
     cname := ""
     tail := ""
-    if len(pathArr) == 0 {
-        fmt.Fprintf(w, "/")
+    if r.URL.Path == "/"  {
+        labels := Host(r)
+        scheme := Scheme(r)
+        if len(labels) != 0 {
+            resolve, ok := LabelToResolve[labels[len(labels)-1]]
+            if ok {
+                http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, resolve), http.StatusFound)
+                return
+            }
+        }
+        http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, config.Homepage), http.StatusFound)
+        return
     } else {
         cname = pathArr[0]
         if len(pathArr) == 2 {
@@ -502,6 +518,7 @@ type MirrorZD struct {
 }
 
 func ProcessEndpoint (e Endpoint) (i EndpointInternal) {
+    LabelToResolve[e.Label] = e.Resolve
     i.Label = e.Label
     i.Resolve = e.Resolve
     i.Public = e.Public
@@ -541,6 +558,8 @@ func ProcessEndpoint (e Endpoint) (i EndpointInternal) {
 }
 
 func LoadMirrorZD (path string) (err error) {
+    AbbrToEndpoints = make(map[string][]EndpointInternal)
+    LabelToResolve = make(map[string]string)
     files, err := ioutil.ReadDir(path)
     if err != nil {
         logger.Errorf("LoadMirrorZD: can not open mirrorz.d directory, %v\n", err)
@@ -568,6 +587,9 @@ func LoadMirrorZD (path string) (err error) {
         }
         AbbrToEndpoints[data.Site.Abbr] = endpointsInternal
     }
+    for label, resolve := range LabelToResolve {
+        logger.Infof("%s -> %s\n", label, resolve)
+    }
     return
 }
 
@@ -590,7 +612,6 @@ func main() {
 
     OpenInfluxDB()
 
-    AbbrToEndpoints = make(map[string][]EndpointInternal)
     LoadMirrorZD(config.MirrorZDDirectory)
 
     signalChannel := make(chan os.Signal, 1)
