@@ -628,8 +628,12 @@ func ResolveExist(res *api.QueryTableResult, traceStr *string, trace bool,
     return
 }
 
-func ResolvedTicker() {
+func ResolvedInit() {
     resolved = make(map[string]Resolved)
+}
+
+func ResolvedTicker() {
+    ResolvedInit()
     // GC on resolved
     ticker := time.NewTicker(time.Second * time.Duration(config.CacheTime))
 
@@ -783,11 +787,20 @@ func main() {
     LoadMirrorZD(config.MirrorZDDirectory)
 
     signalChannel := make(chan os.Signal, 1)
-    signal.Notify(signalChannel, syscall.SIGHUP)
+    signal.Notify(signalChannel, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2)
     go func(){
-        for _ = range signalChannel {
-            logger.Infof("Got A HUP Signal! Now Reloading Conf....\n")
-            LoadMirrorZD(config.MirrorZDDirectory)
+        for sig := range signalChannel {
+            switch sig {
+            case syscall.SIGHUP:
+                logger.Infof("Got A HUP Signal! Now Reloading mirrorz.d.json....\n")
+                LoadMirrorZD(config.MirrorZDDirectory)
+            case syscall.SIGUSR1:
+                logger.Infof("Got A USR1 Signal! Now Reloading config.json....\n")
+                LoadConfig(*configPtr, *debugPtr)
+            case syscall.SIGUSR2:
+                logger.Infof("Got A USR2 Signal! Now Flush Resolved....\n")
+                ResolvedInit()
+            }
         }
     }()
 
