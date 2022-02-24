@@ -200,74 +200,54 @@ type Score struct {
     repo string
 }
 
-// For reference on delta precedence
-/*
-func CompareScore(l, r Score) int {
+func (l Score) Less(r Score) bool {
     // ret > 0 means r > l
     if (l.pos != r.pos) {
-        return r.pos - l.pos
+        return r.pos - l.pos < 0
     }
     if (l.mask != r.mask) {
-        return r.mask - l.mask
+        return r.mask - l.mask < 0
     }
     if (l.as != r.as) {
         if (l.as == 1) {
-            return -1
+            return true
         } else {
-            return 1
+            return false
         }
     }
     if (l.delta == 0) {
-        return +1
+        return false
     } else if (r.delta == 0) {
-        return -1
+        return true
     } else if (l.delta < 0 && r.delta > 0) {
-        return -1
+        return true
     } else if (r.delta < 0 && l.delta > 0) {
-        return +1
+        return false
     } else if (r.delta > 0 && l.delta > 0) {
-        return l.delta - r.delta
+        return l.delta - r.delta <= 0
     } else {
-        return r.delta - l.delta
-    }
-    return 0
-}
-*/
-
-type Scores []Score
-
-func (s Scores) Len() int { return len(s) }
-func (s Scores) Less(l, r int) bool {
-    if (s[l].delta == 0) {
-        return false
-    } else if (s[r].delta == 0) {
-        return true
-    } else if (s[l].delta < 0 && s[r].delta > 0) {
-        return true
-    } else if (s[r].delta < 0 && s[l].delta > 0) {
-        return false
-    } else if (s[r].delta > 0 && s[l].delta > 0) {
-        return (s[l].delta - s[r].delta) <= 0
-    } else {
-        return (s[r].delta - s[l].delta) <= 0
+        return r.delta - l.delta <= 0
     }
 }
-func (s Scores) Swap(l, r int) { s[l], s[r] = s[r], s[l] }
+
+func (l Score) DominateExceptDelta(r Score) bool {
+    rangeDominate := false
+    if l.mask > r.mask || (l.mask == r.mask && l.as >= r.as && r.as != 1) {
+        rangeDominate = true
+    }
+    return l.pos >= r.pos && rangeDominate
+}
 
 func (l Score) Dominate(r Score) bool {
     deltaDominate := false
     if l.delta == 0 && r.delta == 0 {
         deltaDominate = true
-    } else if l.delta < 0 && r.delta < 0 && l.delta >= r.delta {
+    } else if l.delta < 0 && r.delta < 0 && l.delta > r.delta {
         deltaDominate = true
-    } else if l.delta > 0 && r.delta > 0 && l.delta <= r.delta {
+    } else if l.delta > 0 && r.delta > 0 && l.delta < r.delta {
         deltaDominate = true
     }
-    rangeDominate := false
-    if l.mask > r.mask || (l.mask == r.mask && l.as >= r.as && r.as != 1) {
-        rangeDominate = true
-    }
-    return l.pos >= r.pos && rangeDominate && deltaDominate
+    return l.DominateExceptDelta(r) && deltaDominate
 }
 
 func (l Score) DeltaOnly() bool {
@@ -277,6 +257,86 @@ func (l Score) DeltaOnly() bool {
 func (l Score) EqualExceptDelta(r Score) bool {
     return l.pos == r.pos && l.mask == r.mask && l.as == r.as
 }
+
+type Scores []Score
+
+func (s Scores) Len() int { return len(s) }
+
+func (s Scores) Less(l, r int) bool {
+    return s[l].Less(s[r])
+}
+
+func (s Scores) Swap(l, r int) { s[l], s[r] = s[r], s[l] }
+
+func (scores Scores) OptimalsExceptDelta() (optimalScores Scores) {
+    for i, l := range scores {
+        dominated := false
+        for j, r := range scores {
+            if i != j && r.DominateExceptDelta(l) {
+                dominated = true
+            }
+        }
+        if !dominated {
+            optimalScores = append(optimalScores, l)
+        }
+    }
+    return
+}
+
+func (scores Scores) Optimals() (optimalScores Scores) {
+    for i, l := range scores {
+        dominated := false
+        for j, r := range scores {
+            if i != j && r.Dominate(l) {
+                dominated = true
+            }
+        }
+        if !dominated {
+            optimalScores = append(optimalScores, l)
+        }
+    }
+    return
+}
+
+func (scores Scores) AllDelta() (allDelta bool) {
+    allDelta = true
+    for _, s := range scores {
+        if !s.DeltaOnly() {
+            allDelta = false;
+        }
+    }
+    return
+}
+
+func (scores Scores) AllEqualExceptDelta() (allEqualExceptDelta bool) {
+    allEqualExceptDelta = true
+    if len(scores) == 0 {
+        return
+    }
+    for _, l := range scores {
+        if !l.EqualExceptDelta(scores[0]) { // [0] valid ensured by previous if
+            allEqualExceptDelta = false
+        }
+    }
+    return
+}
+
+func (scores Scores) RandomRange(r int) (score Score) {
+    i := rand.Intn(r)
+    score = scores[i]
+    return
+}
+
+func (scores Scores) RandomHalf() (score Score) {
+    score = scores.RandomRange((len(scores)+1)/2)
+    return
+}
+
+func (scores Scores) Random() (score Score) {
+    score = scores.RandomRange(len(scores))
+    return
+}
+
 
 // IP, label to start, last timestamp, url
 type Resolved struct {
@@ -445,29 +505,18 @@ func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
 
         // Find the not-dominated scores, or the first one
         if len(scoresEndpoints) > 0 {
-            var optimalScores Scores
-            for i, l := range scoresEndpoints {
-                dominated := false
-                for j, r := range scoresEndpoints {
-                    if i != j && r.Dominate(l) {
-                        dominated = true
-                    }
-                }
-                if !dominated {
-                    optimalScores = append(optimalScores, l)
-                }
-            }
+            optimalScores := scoresEndpoints.OptimalsExceptDelta() // Delta all the same
             if len(optimalScores) > 0 && len(optimalScores) != len(scoresEndpoints) {
                 for index, score := range optimalScores {
                     traceFunc(fmt.Sprintf("  optimal scores: %d %v\n", index, score))
                     scores = append(scores, score)
                 }
-            } else if len(scoresEndpoints) > 0 {
+            } else {
                 traceFunc(fmt.Sprintf("  first score: %v\n", scoresEndpoints[0]))
                 scores = append(scores, scoresEndpoints[0])
-            } else {
-                traceFunc(fmt.Sprintf("  no score found\n"))
             }
+        } else {
+            traceFunc(fmt.Sprintf("  no score found\n"))
         }
     }
     if res.Err() != nil {
@@ -475,67 +524,47 @@ func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
         return
     }
 
+    var chosenScore Score
     if len(scores) > 0 {
         for index, score := range scores {
             traceFunc(fmt.Sprintf("scores: %d %v\n", index, score))
         }
-        var optimalScores Scores
-        allDelta := true
-        for i, l := range scores {
-            dominated := false
-            for j, r := range scores {
-                if i != j && r.Dominate(l) {
-                    dominated = true
-                }
-            }
-            if !dominated {
-                optimalScores = append(optimalScores, l)
-            }
-            if !l.DeltaOnly() {
-                allDelta = false;
-            }
-        }
+        optimalScores := scores.Optimals()
         if len(optimalScores) == 0 {
             logger.Warningf("Resolve optimal scores empty, algorithm implemented error")
-            resolve = scores[0].resolve
-            repo = scores[0].repo
-        }
-        allEqualExceptDelta := true
-        for _, l := range optimalScores {
-            if (!l.EqualExceptDelta(optimalScores[0])) { // [0] valid ensured by previous if
-                allEqualExceptDelta = false
-            }
-        }
-        if allEqualExceptDelta || allDelta {
-            var candidateScores Scores
-            if (allDelta) {
-                // Note: allDelta == true implies allEqualExceptDelta == true
-                candidateScores = scores
-            } else {
-                candidateScores = optimalScores
-            }
-            // randomly choose one mirror from the optimal half
-            // len(optimalScores) == 1
-            sort.Sort(candidateScores)
-            for index, score := range candidateScores {
-                traceFunc(fmt.Sprintf("sorted delta scores: %d %v\n", index, score))
-            }
-            randRange := (len(candidateScores)+1)/2
-            randIndex := rand.Intn(randRange)
-            traceFunc(fmt.Sprintf("randomly chosen score: (%d/%d) %v\n", randIndex, randRange-1, candidateScores[randIndex]))
-            resolve = candidateScores[randIndex].resolve
-            repo = candidateScores[randIndex].repo
+            chosenScore = scores[0]
         } else {
-            // randomly choose one mirror not dominated by others
-            for index, score := range optimalScores {
-                traceFunc(fmt.Sprintf("optimal scores: %d %v\n", index, score))
+            allDelta := scores.AllDelta()
+            allEqualExceptDelta := optimalScores.AllEqualExceptDelta()
+            if allEqualExceptDelta || allDelta {
+                var candidateScores Scores
+                if (allDelta) {
+                    // Note: allDelta == true implies allEqualExceptDelta == true
+                    candidateScores = scores
+                } else {
+                    candidateScores = optimalScores
+                }
+                // randomly choose one mirror from the optimal half
+                // when len(optimalScores) == 1, randomHalf always success
+                sort.Sort(candidateScores)
+                chosenScore = candidateScores.RandomHalf()
+                for index, score := range candidateScores {
+                    traceFunc(fmt.Sprintf("sorted delta scores: %d %v\n", index, score))
+                }
+            } else {
+                sort.Sort(optimalScores)
+                chosenScore = optimalScores[0]
+                // randomly choose one mirror not dominated by others
+                //chosenScore = optimalScores.Random()
+                for index, score := range optimalScores {
+                    traceFunc(fmt.Sprintf("optimal scores: %d %v\n", index, score))
+                }
             }
-            randIndex := rand.Intn(len(optimalScores))
-            traceFunc(fmt.Sprintf("randomly chosen score: %d %v\n", randIndex, optimalScores[randIndex]))
-            resolve = optimalScores[randIndex].resolve
-            repo = optimalScores[randIndex].repo
         }
     }
+    traceFunc(fmt.Sprintf("chosen score: %v\n", chosenScore))
+    resolve = chosenScore.resolve
+    repo = chosenScore.repo
     return
 }
 
