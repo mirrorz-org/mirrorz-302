@@ -302,7 +302,7 @@ func (scores Scores) AllDelta() (allDelta bool) {
     allDelta = true
     for _, s := range scores {
         if !s.DeltaOnly() {
-            allDelta = false;
+            allDelta = false
         }
     }
     return
@@ -346,14 +346,13 @@ type Resolved struct {
     resolve string // only used in resolveExist
 }
 
-// Should GC on this!
-var resolved map[string]Resolved;
+var resolved map[string]Resolved
 
 func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr string, err error) {
     traceFunc := func(s string) {
-        logger.Debugf(s);
+        logger.Debugf(s)
         if trace {
-            traceStr += s;
+            traceStr += s
         }
     }
 
@@ -445,14 +444,14 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
 func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
         labels []string, remoteIP net.IP, asn string, scheme string) (resolve string, repo string) {
     traceFunc := func(s string) {
-        logger.Debugf(s);
+        logger.Debugf(s)
         if trace {
-            *traceStr += s;
+            *traceStr += s
         }
     }
 
     var scores Scores
-    remoteIPv4 := remoteIP.To4() != nil;
+    remoteIPv4 := remoteIP.To4() != nil
 
     for res.Next() {
         record := res.Record()
@@ -593,9 +592,9 @@ func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
 func ResolveExist(res *api.QueryTableResult, traceStr *string, trace bool,
         oldResolve string) (resolve string, repo string) {
     traceFunc := func(s string) {
-        logger.Debugf(s);
+        logger.Debugf(s)
         if trace {
-            *traceStr += s;
+            *traceStr += s
         }
     }
 
@@ -627,6 +626,28 @@ func ResolveExist(res *api.QueryTableResult, traceStr *string, trace bool,
         }
     }
     return
+}
+
+func ResolvedTicker() {
+    resolved = make(map[string]Resolved)
+    // GC on resolved
+    ticker := time.NewTicker(time.Second * time.Duration(config.CacheTime))
+
+    go func() {
+        for {
+            t := <-ticker.C
+            cur := t.Unix()
+            logger.Debugf("Resolved GC starts\n")
+            for k, v := range resolved {
+                if cur - v.start >= config.CacheTime &&
+                        cur - v.last >= config.CacheTime {
+                    delete(resolved, k)
+                    logger.Debugf("Resolved GC %s %s\n", k, v.url)
+                }
+            }
+            logger.Debugf("Resolved GC finished\n")
+        }
+    }()
 }
 
 type Endpoint struct {
@@ -728,7 +749,7 @@ func LoadMirrorZD (path string) (err error) {
             continue
         }
         logger.Infof("%+v\n", data)
-        var endpointsInternal []EndpointInternal;
+        var endpointsInternal []EndpointInternal
         for _, e := range data.Endpoints {
             endpointsInternal = append(endpointsInternal, ProcessEndpoint(e))
         }
@@ -770,7 +791,7 @@ func main() {
         }
     }()
 
-    resolved = make(map[string]Resolved)
+    ResolvedTicker()
 
     http.HandleFunc("/", Handler)
     logger.Errorf("HTTP Server error: %v\n", http.ListenAndServe(config.HTTPBindAddress, nil))
