@@ -267,10 +267,18 @@ func (l Score) DeltaOnly() bool {
     return l.pos == 0 && l.mask == 0 && l.as == 0
 }
 
-
 func (l Score) EqualExceptDelta(r Score) bool {
     return l.pos == r.pos && l.mask == r.mask && l.as == r.as
 }
+
+// IP, label to timestamp, url
+type Resolved struct {
+    timestamp int64
+    url string
+}
+
+// Should GC on this!
+var resolved map[string]Resolved;
 
 func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr string, err error) {
     traceFunc := func(s string) {
@@ -278,6 +286,40 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
         if trace {
             traceStr += s;
         }
+    }
+
+    var scores Scores
+    var resolve string
+    var repo string
+
+    labels := Host(r)
+    remoteIP := IP(r)
+    remoteIPv4 := remoteIP.To4() != nil;
+    asn := ASN(remoteIP)
+    scheme := Scheme(r)
+    traceFunc(fmt.Sprintf("labels: %v\n", labels))
+    traceFunc(fmt.Sprintf("IP: %v\n", remoteIP))
+    traceFunc(fmt.Sprintf("ASN: %s\n", asn))
+    traceFunc(fmt.Sprintf("Scheme: %s\n", scheme))
+
+    // check if already resolved / cached
+    key := strings.Join([]string{
+        remoteIP.String(),
+        cname,
+        asn,
+        scheme,
+        strings.Join(labels, "-"),
+    }, "+")
+    keyResolved, prs := resolved[key]
+
+    if prs && time.Now().Unix() - keyResolved.timestamp < 60 {
+        url = keyResolved.url
+        // update timestamp
+        resolved[key] = Resolved {timestamp: time.Now().Unix(), url: url}
+        cachedLog := fmt.Sprintf("Cached: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
+        traceFunc(cachedLog)
+        logger.Infof(cachedLog)
+        return
     }
 
     query := fmt.Sprintf(`from(bucket:"%s")
@@ -288,21 +330,6 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     // SQL INJECTION!!! (use read only token)
 
     res, err := queryAPI.Query(context.Background(), query)
-
-    var scores Scores
-    var resolve string
-    var repo string
-
-    labels := Host(r)
-    remoteIP := IP(r)
-    asn := ASN(remoteIP)
-    scheme := Scheme(r)
-    traceFunc(fmt.Sprintf("labels: %v\n", labels))
-    traceFunc(fmt.Sprintf("IP: %v\n", remoteIP))
-    traceFunc(fmt.Sprintf("ASN: %s\n", asn))
-    traceFunc(fmt.Sprintf("Scheme: %s\n", scheme))
-
-    remoteIPv4 := remoteIP.To4() != nil;
 
     if err == nil {
         for res.Next() {
@@ -478,7 +505,10 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     } else {
         url = fmt.Sprintf("%s://%s%s", scheme, resolve, repo)
     }
-    logger.Infof("Resolved: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
+    resolved[key] = Resolved {timestamp: time.Now().Unix(), url: url}
+    resolvedLog := fmt.Sprintf("Resolved: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
+    traceFunc(resolvedLog)
+    logger.Infof(resolvedLog)
     return
 }
 
@@ -622,6 +652,8 @@ func main() {
             LoadMirrorZD(config.MirrorZDDirectory)
         }
     }()
+
+    resolved = make(map[string]Resolved)
 
     http.HandleFunc("/", Handler)
     logger.Errorf("HTTP Server error: %v\n", http.ListenAndServe(config.HTTPBindAddress, nil))
