@@ -37,6 +37,7 @@ type Config struct {
     MirrorZDDirectory string `json:"mirrorz-d-directory"`
     Homepage string `json:"homepage"`
     DomainLength int `json:"domain-length"`
+    CacheTime int `json:"cache-time"`
 }
 
 var logger = loggo.GetLogger("mirrorzd")
@@ -90,7 +91,12 @@ func LoadConfig (path string, debug bool) (err error) {
     if (config.DomainLength == 0) {
         // 4 for *.mirrors.edu.cn
         // 4 for *.m.mirrorz.org
-        config.DomainLength = 4
+        // 5 for *.mirrors.cngi.edu.cn
+        // 5 for *.mirrors.cernet.edu.cn
+        config.DomainLength = 5
+    }
+    if (config.CacheTime == 0) {
+        config.CacheTime = 300
     }
     logger.Debugf("LoadConfig InfluxDB URL: %s\n", config.InfluxDBURL)
     logger.Debugf("LoadConfig InfluxDB Org: %s\n", config.InfluxDBOrg)
@@ -100,6 +106,7 @@ func LoadConfig (path string, debug bool) (err error) {
     logger.Debugf("LoadConfig MirrorZ D Directory: %s\n", config.MirrorZDDirectory)
     logger.Debugf("LoadConfig Homepage: %s\n", config.Homepage)
     logger.Debugf("LoadConfig Domain Length: %d\n", config.DomainLength)
+    logger.Debugf("LoadConfig Cache Time: %d\n", config.CacheTime)
     return
 }
 
@@ -271,9 +278,10 @@ func (l Score) EqualExceptDelta(r Score) bool {
     return l.pos == r.pos && l.mask == r.mask && l.as == r.as
 }
 
-// IP, label to timestamp, url
+// IP, label to start, last timestamp, url
 type Resolved struct {
-    timestamp int64
+    start int64 // starting timestamp
+    last int64  // last update timestamp
     url string
 }
 
@@ -312,10 +320,10 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     }, "+")
     keyResolved, prs := resolved[key]
 
-    if prs && time.Now().Unix() - keyResolved.timestamp < 60 {
+    if prs && time.Now().Unix() - keyResolved.last < config.CacheTime {
         url = keyResolved.url
         // update timestamp
-        resolved[key] = Resolved {timestamp: time.Now().Unix(), url: url}
+        resolved[key] = Resolved {start: keyResolved.start, last: time.Now().Unix(), url: url}
         cachedLog := fmt.Sprintf("Cached: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
         traceFunc(cachedLog)
         logger.Infof(cachedLog)
@@ -505,7 +513,7 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     } else {
         url = fmt.Sprintf("%s://%s%s", scheme, resolve, repo)
     }
-    resolved[key] = Resolved {timestamp: time.Now().Unix(), url: url}
+    resolved[key] = Resolved {start: time.Now().Unix(), last: time.Now().Unix(), url: url}
     resolvedLog := fmt.Sprintf("Resolved: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
     traceFunc(resolvedLog)
     logger.Infof(resolvedLog)
