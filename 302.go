@@ -340,9 +340,10 @@ func (scores Scores) Random() (score Score) {
 
 // IP, label to start, last timestamp, url
 type Resolved struct {
-    start int64 // starting timestamp
+    start int64 // starting timestamp, namely still check db after some time
     last int64  // last update timestamp
     url string
+    resolve string // only used in resolveExist
 }
 
 // Should GC on this!
@@ -375,12 +376,19 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     }, "+")
     keyResolved, prs := resolved[key]
 
+    // all valid, use cached result
+    cur := time.Now().Unix()
     if prs &&
-            time.Now().Unix() - keyResolved.last < config.CacheTime &&
-            time.Now().Unix() - keyResolved.start < config.CacheTime {
+            cur - keyResolved.last < config.CacheTime &&
+            cur - keyResolved.start < config.CacheTime {
         url = keyResolved.url
         // update timestamp
-        resolved[key] = Resolved {start: keyResolved.start, last: time.Now().Unix(), url: url}
+        resolved[key] = Resolved {
+            start: keyResolved.start,
+            last: cur,
+            url: url,
+            resolve: keyResolved.resolve,
+        }
         cachedLog := fmt.Sprintf("Cached: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
         traceFunc(cachedLog)
         logger.Infof(cachedLog)
@@ -404,16 +412,30 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     var resolve string
     var repo string
 
-    resolve, repo = ResolveBest(res, &traceStr, trace, labels, remoteIP, asn, scheme)
+    if prs &&
+            cur - keyResolved.last < config.CacheTime &&
+            cur - keyResolved.start >= config.CacheTime {
+        resolve, repo = ResolveExist(res, &traceStr, trace, keyResolved.resolve)
+    }
 
-    if strings.HasPrefix(repo, "http://") || strings.HasPrefix(repo, "https://") {
-        url = repo
-    } else if resolve == "" && repo == "" {
+    if resolve == "" && repo == "" {
+        // the above IF does not hold or resolveNotExist
+        resolve, repo = ResolveBest(res, &traceStr, trace, labels, remoteIP, asn, scheme)
+    }
+
+    if resolve == "" && repo == "" {
         url = ""
+    } else if strings.HasPrefix(repo, "http://") || strings.HasPrefix(repo, "https://") {
+        url = repo
     } else {
         url = fmt.Sprintf("%s://%s%s", scheme, resolve, repo)
     }
-    resolved[key] = Resolved {start: time.Now().Unix(), last: time.Now().Unix(), url: url}
+    resolved[key] = Resolved {
+        start: cur,
+        last: cur,
+        url: url,
+        resolve: resolve,
+    }
     resolvedLog := fmt.Sprintf("Resolved: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
     traceFunc(resolvedLog)
     logger.Infof(resolvedLog)
@@ -565,6 +587,45 @@ func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
     traceFunc(fmt.Sprintf("chosen score: %v\n", chosenScore))
     resolve = chosenScore.resolve
     repo = chosenScore.repo
+    return
+}
+
+func ResolveExist(res *api.QueryTableResult, traceStr *string, trace bool,
+        oldResolve string) (resolve string, repo string) {
+    traceFunc := func(s string) {
+        logger.Debugf(s);
+        if trace {
+            *traceStr += s;
+        }
+    }
+
+    found := false
+
+    for res.Next() {
+        record := res.Record()
+        abbr := record.ValueByKey("mirror").(string)
+        traceFunc(fmt.Sprintf("abbr: %s\n", abbr))
+        endpoints, ok := AbbrToEndpoints[abbr]
+        if !ok {
+            continue
+        }
+        for _, endpoint := range endpoints {
+            traceFunc(fmt.Sprintf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label))
+
+            if (oldResolve == endpoint.Resolve) {
+                resolve = endpoint.Resolve
+                repo = record.ValueByKey("path").(string)
+                found = true
+                traceFunc("exist\n")
+            }
+            if found {
+                break
+            }
+        }
+        if found {
+            break
+        }
+    }
     return
 }
 
