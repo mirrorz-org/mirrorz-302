@@ -37,7 +37,7 @@ type Config struct {
     MirrorZDDirectory string `json:"mirrorz-d-directory"`
     Homepage string `json:"homepage"`
     DomainLength int `json:"domain-length"`
-    CacheTime int `json:"cache-time"`
+    CacheTime int64 `json:"cache-time"`
 }
 
 var logger = loggo.GetLogger("mirrorzd")
@@ -140,11 +140,11 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 
     _, trace := r.URL.Query()["trace"]
 
-    url, traceStr, _ := Resolve(r, cname, trace)
+    url, traceStr, err := Resolve(r, cname, trace)
 
     if trace {
         fmt.Fprintf(w, "%s", traceStr)
-    } else if url == "" {
+    } else if url == "" || err != nil {
         http.NotFound(w, r)
     } else {
         http.Redirect(w, r, fmt.Sprintf("%s%s", url, tail), http.StatusFound)
@@ -296,13 +296,8 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
         }
     }
 
-    var scores Scores
-    var resolve string
-    var repo string
-
     labels := Host(r)
     remoteIP := IP(r)
-    remoteIPv4 := remoteIP.To4() != nil;
     asn := ASN(remoteIP)
     scheme := Scheme(r)
     traceFunc(fmt.Sprintf("labels: %v\n", labels))
@@ -320,7 +315,9 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     }, "+")
     keyResolved, prs := resolved[key]
 
-    if prs && time.Now().Unix() - keyResolved.last < config.CacheTime {
+    if prs &&
+            time.Now().Unix() - keyResolved.last < config.CacheTime &&
+            time.Now().Unix() - keyResolved.start < config.CacheTime {
         url = keyResolved.url
         // update timestamp
         resolved[key] = Resolved {start: keyResolved.start, last: time.Now().Unix(), url: url}
@@ -339,109 +336,143 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
 
     res, err := queryAPI.Query(context.Background(), query)
 
-    if err == nil {
-        for res.Next() {
-            record := res.Record()
-            abbr := record.ValueByKey("mirror").(string)
-            traceFunc(fmt.Sprintf("abbr: %s\n", abbr))
-            endpoints, ok := AbbrToEndpoints[abbr]
-            if (ok) {
-                var scoresEndpoints Scores
-                for _, endpoint := range endpoints {
-                    traceFunc(fmt.Sprintf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label))
-                    if remoteIPv4 && !endpoint.Filter.V4 {
-                        traceFunc(fmt.Sprintf("    not v4 endpoint\n"))
-                        continue
-                    }
-                    if !remoteIPv4 && !endpoint.Filter.V6 {
-                        traceFunc(fmt.Sprintf("    not v6 endpoint\n"))
-                        continue
-                    }
-                    if scheme == "http" && !endpoint.Filter.NOSSL {
-                        traceFunc(fmt.Sprintf("    not nossl endpoint\n"))
-                        continue
-                    }
-                    if scheme == "https" && !endpoint.Filter.SSL {
-                        traceFunc(fmt.Sprintf("    not ssl endpoint\n"))
-                        continue
-                    }
-                    if (len(labels) != 0 && labels[len(labels)-1] == "4") && !endpoint.Filter.V4Only {
-                        traceFunc(fmt.Sprintf("    label v4only but endpoint not v4only\n"))
-                        continue
-                    }
-                    if (len(labels) != 0 && labels[len(labels)-1] == "6") && !endpoint.Filter.V6Only {
-                        traceFunc(fmt.Sprintf("    label v6only but endpoint not v6only\n"))
-                        continue
-                    }
-                    score := Score {pos: 0, as: 0, mask: 0, delta: 0}
-                    score.delta = int(record.Value().(int64))
-                    for index, label := range labels {
-                        if label == endpoint.Label {
-                            score.pos = index + 1
-                        }
-                    }
-                    for _, endpointASN := range endpoint.RangeASN {
-                        if endpointASN == asn {
-                            score.as = 1
-                        }
-                    }
-                    for _, ipnet := range endpoint.RangeCIDR {
-                        if remoteIP != nil && ipnet.Contains(remoteIP) {
-                            mask, _ := ipnet.Mask.Size()
-                            if mask > score.mask {
-                                score.mask = mask
-                            }
-                        }
-                    }
+    if (err != nil) {
+        logger.Errorf("Resolve query: %v\n", err)
+        return
+    }
 
-                    score.resolve = endpoint.Resolve
-                    score.repo = record.ValueByKey("path").(string)
-                    traceFunc(fmt.Sprintf("    score: %v\n", score))
+    var resolve string
+    var repo string
 
-                    //if score.delta < -60*60*24*3 { // 3 days
-                    //    traceFunc(fmt.Sprintf("    not up-to-date enough\n"))
-                    //    continue
-                    //}
-                    if !endpoint.Public && score.mask == 0 && score.as == 0 {
-                        traceFunc(fmt.Sprintf("    not hit private\n"))
-                        continue
-                    }
-                    scoresEndpoints = append(scoresEndpoints, score)
+    resolve, repo = ResolveBest(res, &traceStr, trace, labels, remoteIP, asn, scheme)
+
+    if strings.HasPrefix(repo, "http://") || strings.HasPrefix(repo, "https://") {
+        url = repo
+    } else if resolve == "" && repo == "" {
+        url = ""
+    } else {
+        url = fmt.Sprintf("%s://%s%s", scheme, resolve, repo)
+    }
+    resolved[key] = Resolved {start: time.Now().Unix(), last: time.Now().Unix(), url: url}
+    resolvedLog := fmt.Sprintf("Resolved: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
+    traceFunc(resolvedLog)
+    logger.Infof(resolvedLog)
+    return
+}
+
+func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
+        labels []string, remoteIP net.IP, asn string, scheme string) (resolve string, repo string) {
+    traceFunc := func(s string) {
+        logger.Debugf(s);
+        if trace {
+            *traceStr += s;
+        }
+    }
+
+    var scores Scores
+    remoteIPv4 := remoteIP.To4() != nil;
+
+    for res.Next() {
+        record := res.Record()
+        abbr := record.ValueByKey("mirror").(string)
+        traceFunc(fmt.Sprintf("abbr: %s\n", abbr))
+        endpoints, ok := AbbrToEndpoints[abbr]
+        if !ok {
+            continue
+        }
+        var scoresEndpoints Scores
+        for _, endpoint := range endpoints {
+            traceFunc(fmt.Sprintf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label))
+            if remoteIPv4 && !endpoint.Filter.V4 {
+                traceFunc(fmt.Sprintf("    not v4 endpoint\n"))
+                continue
+            }
+            if !remoteIPv4 && !endpoint.Filter.V6 {
+                traceFunc(fmt.Sprintf("    not v6 endpoint\n"))
+                continue
+            }
+            if scheme == "http" && !endpoint.Filter.NOSSL {
+                traceFunc(fmt.Sprintf("    not nossl endpoint\n"))
+                continue
+            }
+            if scheme == "https" && !endpoint.Filter.SSL {
+                traceFunc(fmt.Sprintf("    not ssl endpoint\n"))
+                continue
+            }
+            if (len(labels) != 0 && labels[len(labels)-1] == "4") && !endpoint.Filter.V4Only {
+                traceFunc(fmt.Sprintf("    label v4only but endpoint not v4only\n"))
+                continue
+            }
+            if (len(labels) != 0 && labels[len(labels)-1] == "6") && !endpoint.Filter.V6Only {
+                traceFunc(fmt.Sprintf("    label v6only but endpoint not v6only\n"))
+                continue
+            }
+            score := Score {pos: 0, as: 0, mask: 0, delta: 0}
+            score.delta = int(record.Value().(int64))
+            for index, label := range labels {
+                if label == endpoint.Label {
+                    score.pos = index + 1
                 }
-
-                // Find the not-dominated scores, or the first one
-                if len(scoresEndpoints) > 0 {
-                    var optimalScores Scores
-                    for i, l := range scoresEndpoints {
-                        dominated := false
-                        for j, r := range scoresEndpoints {
-                            if i != j && r.Dominate(l) {
-                                dominated = true
-                            }
-                        }
-                        if !dominated {
-                            optimalScores = append(optimalScores, l)
-                        }
-                    }
-                    if len(optimalScores) > 0 && len(optimalScores) != len(scoresEndpoints) {
-                        for index, score := range optimalScores {
-                            traceFunc(fmt.Sprintf("  optimal scores: %d %v\n", index, score))
-                            scores = append(scores, score)
-                        }
-                    } else if len(scoresEndpoints) > 0 {
-                        traceFunc(fmt.Sprintf("  first score: %v\n", scoresEndpoints[0]))
-                        scores = append(scores, scoresEndpoints[0])
-                    } else {
-                        traceFunc(fmt.Sprintf("  no score found\n"))
+            }
+            for _, endpointASN := range endpoint.RangeASN {
+                if endpointASN == asn {
+                    score.as = 1
+                }
+            }
+            for _, ipnet := range endpoint.RangeCIDR {
+                if remoteIP != nil && ipnet.Contains(remoteIP) {
+                    mask, _ := ipnet.Mask.Size()
+                    if mask > score.mask {
+                        score.mask = mask
                     }
                 }
             }
+
+            score.resolve = endpoint.Resolve
+            score.repo = record.ValueByKey("path").(string)
+            traceFunc(fmt.Sprintf("    score: %v\n", score))
+
+            //if score.delta < -60*60*24*3 { // 3 days
+            //    traceFunc(fmt.Sprintf("    not up-to-date enough\n"))
+            //    continue
+            //}
+            if !endpoint.Public && score.mask == 0 && score.as == 0 {
+                traceFunc(fmt.Sprintf("    not hit private\n"))
+                continue
+            }
+            scoresEndpoints = append(scoresEndpoints, score)
         }
-        if res.Err() != nil {
-            logger.Errorf("Resolve query parsing error: %s\n", res.Err().Error())
+
+        // Find the not-dominated scores, or the first one
+        if len(scoresEndpoints) > 0 {
+            var optimalScores Scores
+            for i, l := range scoresEndpoints {
+                dominated := false
+                for j, r := range scoresEndpoints {
+                    if i != j && r.Dominate(l) {
+                        dominated = true
+                    }
+                }
+                if !dominated {
+                    optimalScores = append(optimalScores, l)
+                }
+            }
+            if len(optimalScores) > 0 && len(optimalScores) != len(scoresEndpoints) {
+                for index, score := range optimalScores {
+                    traceFunc(fmt.Sprintf("  optimal scores: %d %v\n", index, score))
+                    scores = append(scores, score)
+                }
+            } else if len(scoresEndpoints) > 0 {
+                traceFunc(fmt.Sprintf("  first score: %v\n", scoresEndpoints[0]))
+                scores = append(scores, scoresEndpoints[0])
+            } else {
+                traceFunc(fmt.Sprintf("  no score found\n"))
+            }
         }
-    } else {
-        logger.Errorf("Resolve query: %v\n", err)
+    }
+    if res.Err() != nil {
+        logger.Errorf("Resolve query parsing error: %s\n", res.Err().Error())
+        return
     }
 
     if len(scores) > 0 {
@@ -504,19 +535,7 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
             resolve = optimalScores[randIndex].resolve
             repo = optimalScores[randIndex].repo
         }
-    } else {
-        return
     }
-
-    if (strings.HasPrefix(repo, "http://") || strings.HasPrefix(repo, "https://")) {
-        url = repo
-    } else {
-        url = fmt.Sprintf("%s://%s%s", scheme, resolve, repo)
-    }
-    resolved[key] = Resolved {start: time.Now().Unix(), last: time.Now().Unix(), url: url}
-    resolvedLog := fmt.Sprintf("Resolved: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
-    traceFunc(resolvedLog)
-    logger.Infof(resolvedLog)
     return
 }
 
