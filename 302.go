@@ -423,11 +423,12 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     traceFunc(fmt.Sprintf("ASN: %s\n", asn))
     traceFunc(fmt.Sprintf("Scheme: %s\n", scheme))
 
-    logFunc := func(url string, char string) {
+    logFunc := func(url string, score Score, char string) {
         if url != "" {
             // record detail in resolve log
             resolveLogger.Debugf(traceStr)
-            resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v\n", char, url, remoteIP, asn, labels)
+            scoreLog := fmt.Sprintf("%d %d %d %d", score.pos, score.mask, score.as, score.delta)
+            resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s\n", char, url, remoteIP, asn, labels, scoreLog)
             resolveLogger.Infof(resolvedLog)
             traceFunc(resolvedLog)
         } else {
@@ -462,7 +463,7 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
             url: url,
             resolve: keyResolved.resolve,
         }
-        logFunc(url, "C") // C for cache
+        logFunc(url, Score{}, "C") // C for cache
         return
     }
 
@@ -489,9 +490,12 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
         resolve, repo = ResolveExist(res, &traceStr, trace, keyResolved.resolve)
     }
 
+    var chosenScore Score
     if resolve == "" && repo == "" {
         // the above IF does not hold or resolveNotExist
-        resolve, repo = ResolveBest(res, &traceStr, trace, labels, remoteIP, asn, scheme)
+        chosenScore = ResolveBest(res, &traceStr, trace, labels, remoteIP, asn, scheme)
+        resolve = chosenScore.resolve
+        repo = chosenScore.repo
     }
 
     if resolve == "" && repo == "" {
@@ -507,12 +511,12 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
         url: url,
         resolve: resolve,
     }
-    logFunc(url, "R") // R for resolve
+    logFunc(url, chosenScore, "R") // R for resolve
     return
 }
 
 func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
-        labels []string, remoteIP net.IP, asn string, scheme string) (resolve string, repo string) {
+        labels []string, remoteIP net.IP, asn string, scheme string) (chosenScore Score) {
     traceFunc := func(s string) {
         if trace {
             *traceStr += s
@@ -614,7 +618,6 @@ func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
         return
     }
 
-    var chosenScore Score
     if len(scores) > 0 {
         for index, score := range scores {
             traceFunc(fmt.Sprintf("scores: %d %v\n", index, score))
@@ -652,9 +655,6 @@ func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
             }
         }
     }
-    traceFunc(fmt.Sprintf("chosen score: %v\n", chosenScore))
-    resolve = chosenScore.resolve
-    repo = chosenScore.repo
     return
 }
 
