@@ -1,4 +1,4 @@
-module mirrorz.d
+module mirrorzd
 
 go 1.16
 
