@@ -7,6 +7,7 @@ import (
     "net/http"
     "math/rand"
     "time"
+    "errors"
 
     "context"
     "github.com/influxdata/influxdb-client-go/v2"
@@ -40,6 +41,8 @@ type Config struct {
     CacheTime int64 `json:"cache-time"`
     LogDirectory string `json:"log-directory"`
     PidFile string `json:"pid-file"`
+    Uid int `json:"uid"`
+    Gid int `json:"gid"`
 }
 
 var logger = loggo.GetLogger("mirrorzd") // to stderr
@@ -839,6 +842,26 @@ func CloseInfluxDB() {
     client.Close()
 }
 
+func DropPrivilege() (err error) {
+    uid := syscall.Getuid()
+    gid := syscall.Getgid()
+    if uid == 0 || gid == 0 {
+        if config.Uid == 0 || config.Gid == 0 {
+            err = errors.New("config.json not filled")
+            return
+        }
+        err = syscall.Setuid(config.Uid)
+        if err != nil {
+            return
+        }
+        err = syscall.Setgid(config.Gid)
+        if err != nil {
+            return
+        }
+    }
+    return
+}
+
 func main() {
     rand.Seed(time.Now().Unix())
 
@@ -848,19 +871,27 @@ func main() {
 
     err := LoadConfig(*configPtr, *debugPtr)
     if err != nil {
-        logger.Errorf("Can not open config file\n")
+        logger.Errorf("Can not open config file: %v\n", err)
         os.Exit(1)
     }
 
+    // Note, write pidfile may require privilege
     err = ioutil.WriteFile(config.PidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
     if err != nil {
-        logger.Errorf("Can not open pid file\n")
+        logger.Errorf("Can not open pid file: %v\n", err)
         os.Exit(1)
     }
 
+    err = DropPrivilege()
+    if err != nil {
+        logger.Errorf("Can not run as uid %d gid %d: %v\n", config.Uid, config.Gid, err)
+        os.Exit(1)
+    }
+
+    // Logfile (or its directory) must be unprivilegd
     err = InitLoggers()
     if err != nil {
-        logger.Errorf("Can not open log file\n")
+        logger.Errorf("Can not open log file: %v\n", err)
         os.Exit(1)
     }
 
