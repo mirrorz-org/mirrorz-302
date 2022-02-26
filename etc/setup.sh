@@ -7,8 +7,8 @@ chown mirrorz:mirrorz /etc/mirrorzd/config.json
 chmod 600 /etc/mirrorzd/config.json
 
 ## set /var/log
-mkdir -p /var/log/mirrorz
-chown mirrorz:mirrorz /var/log/mirrorz
+mkdir -p /var/log/mirrorzd
+chown mirrorz:mirrorz /var/log/mirrorzd
 
 ## setup config.json
 mkdir -p /etc/ipasn

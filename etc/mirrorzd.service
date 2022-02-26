@@ -2,7 +2,7 @@
 Description=mirrorz-302 server
 After=network-online.target
 Wants=network-online.target
-Requires=ipasn.target
+Requires=ipasn.service
 
 [Service]
 Type=simple
