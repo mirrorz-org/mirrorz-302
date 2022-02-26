@@ -1,0 +1,16 @@
+[Unit]
+Description=mirrorz-302 server
+After=network-online.target
+Wants=network-online.target
+Requires=ipasn.target
+
+[Service]
+Type=simple
+PIDFile=/run/mirrorzd.pid
+ExecStart=/usr/local/sbin/mirrorzd -config /etc/mirrorzd/config.json
+TimeoutStopSec=5
+KillMode=process
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

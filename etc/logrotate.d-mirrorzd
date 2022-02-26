@@ -1,0 +1,12 @@
+/var/log/mirrorzd/*.log {
+    create 0640 mirrorz root
+    daily
+    rotate 10
+    missingok
+    notifempty
+    compress
+    sharedscripts
+    postrotate
+        /bin/kill -USR2 `cat /run/mirrorzd.pid 2>/dev/null` 2>/dev/null || true
+    endscript
+}

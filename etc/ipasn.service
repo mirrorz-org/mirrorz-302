@@ -1,0 +1,15 @@
+[Unit]
+Description=Convert IP to ASN
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mirrorz
+ExecStart=/usr/local/sbin/ipasn -config /etc/ipasn/config.json
+TimeoutStopSec=5
+KillMode=process
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
