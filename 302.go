@@ -850,11 +850,11 @@ func DropPrivilege() (err error) {
             err = errors.New("config.json not filled")
             return
         }
-        err = syscall.Setuid(config.Uid)
+        err = syscall.Setgid(config.Gid)
         if err != nil {
             return
         }
-        err = syscall.Setgid(config.Gid)
+        err = syscall.Setuid(config.Uid)
         if err != nil {
             return
         }
