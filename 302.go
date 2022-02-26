@@ -39,6 +39,7 @@ type Config struct {
     DomainLength int `json:"domain-length"`
     CacheTime int64 `json:"cache-time"`
     LogDirectory string `json:"log-directory"`
+    PidFile string `json:"pid-file"`
 }
 
 var logger = loggo.GetLogger("mirrorzd") // to stderr
@@ -147,6 +148,10 @@ func LoadConfig (path string, debug bool) (err error) {
     // If you changed LogDirectory via SIGUSR1, you should issue SIGUSR2 manually
     if (config.LogDirectory == "") {
         config.LogDirectory = "/var/log/mirrorzd/"
+    }
+    // If you changed PidFile via SIGUSR1, you should restart the daemon manually
+    if (config.PidFile == "") {
+        config.PidFile = "/run/mirrorzd.pid"
     }
     logger.Debugf("LoadConfig InfluxDB URL: %s\n", config.InfluxDBURL)
     logger.Debugf("LoadConfig InfluxDB Org: %s\n", config.InfluxDBOrg)
@@ -840,9 +845,20 @@ func main() {
     configPtr := flag.String("config", "config.json", "path to config file")
     debugPtr := flag.Bool("debug", false, "debug mode")
     flag.Parse()
-    LoadConfig(*configPtr, *debugPtr)
 
-    err := InitLoggers()
+    err := LoadConfig(*configPtr, *debugPtr)
+    if err != nil {
+        logger.Errorf("Can not open config file\n")
+        os.Exit(1)
+    }
+
+    err = ioutil.WriteFile(config.PidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
+    if err != nil {
+        logger.Errorf("Can not open pid file\n")
+        os.Exit(1)
+    }
+
+    err = InitLoggers()
     if err != nil {
         logger.Errorf("Can not open log file\n")
         os.Exit(1)
