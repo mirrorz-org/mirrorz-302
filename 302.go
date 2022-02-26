@@ -38,13 +38,59 @@ type Config struct {
     Homepage string `json:"homepage"`
     DomainLength int `json:"domain-length"`
     CacheTime int64 `json:"cache-time"`
+    LogDirectory string `json:"log-directory"`
 }
 
-var logger = loggo.GetLogger("mirrorzd")
+var logger = loggo.GetLogger("mirrorzd") // to stderr
+var resolveLogger loggo.Logger
+var failLogger loggo.Logger
+var cacheGCLogger loggo.Logger
 var config Config
 
 var client influxdb2.Client
 var queryAPI api.QueryAPI
+
+func LoggerFileFormatter(entry loggo.Entry) string {
+    ts := entry.Timestamp.In(time.UTC).Format("2006-01-02 15:04:05")
+    return fmt.Sprintf("%s %s", ts, entry.Message)
+}
+
+func InitLoggers() (err error) {
+    InitLogger := func(logfile string) (logger loggo.Logger, err error) {
+        context := loggo.NewContext(loggo.INFO) // TODO: configurable
+        // Note: how about old file when reload via USR2 (e.g. logrotate)
+        f, err := os.OpenFile(logfile, os.O_CREATE|os.O_RDWR|os.O_APPEND, os.ModeAppend | 0600)
+        if (err != nil) {
+            return
+        }
+        err = context.AddWriter("default", loggo.NewSimpleWriter(f, LoggerFileFormatter))
+        if (err != nil) {
+            return
+        }
+        logger = context.GetLogger("default")
+        return
+    }
+
+    // global resolveLogger
+    resolveLogger, err = InitLogger(config.LogDirectory + "resolve.log")
+    if (err != nil) {
+        return
+    }
+
+    // global failLogger
+    failLogger, err = InitLogger(config.LogDirectory + "fail.log")
+    if (err != nil) {
+        return
+    }
+
+    // global cacheGCLogger
+    cacheGCLogger, err = InitLogger(config.LogDirectory + "gc.log")
+    if (err != nil) {
+        return
+    }
+
+    return
+}
 
 func LoadConfig (path string, debug bool) (err error) {
     if debug {
@@ -98,6 +144,10 @@ func LoadConfig (path string, debug bool) (err error) {
     if (config.CacheTime == 0) {
         config.CacheTime = 300
     }
+    // If you changed LogDirectory via SIGUSR1, you should issue SIGUSR2 manually
+    if (config.LogDirectory == "") {
+        config.LogDirectory = "/var/log/mirrorzd/"
+    }
     logger.Debugf("LoadConfig InfluxDB URL: %s\n", config.InfluxDBURL)
     logger.Debugf("LoadConfig InfluxDB Org: %s\n", config.InfluxDBOrg)
     logger.Debugf("LoadConfig InfluxDB Bucket: %s\n", config.InfluxDBBucket)
@@ -107,6 +157,7 @@ func LoadConfig (path string, debug bool) (err error) {
     logger.Debugf("LoadConfig Homepage: %s\n", config.Homepage)
     logger.Debugf("LoadConfig Domain Length: %d\n", config.DomainLength)
     logger.Debugf("LoadConfig Cache Time: %d\n", config.CacheTime)
+    logger.Debugf("LoadConfig Log Directory: %s\n", config.LogDirectory)
     return
 }
 
@@ -350,7 +401,6 @@ var resolved map[string]Resolved
 
 func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr string, err error) {
     traceFunc := func(s string) {
-        logger.Debugf(s)
         if trace {
             traceStr += s
         }
@@ -364,6 +414,22 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     traceFunc(fmt.Sprintf("IP: %v\n", remoteIP))
     traceFunc(fmt.Sprintf("ASN: %s\n", asn))
     traceFunc(fmt.Sprintf("Scheme: %s\n", scheme))
+
+    logFunc := func(url string, char string) {
+        if url != "" {
+            // record detail in resolve log
+            resolveLogger.Debugf(traceStr)
+            resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v\n", char, url, remoteIP, asn, labels)
+            resolveLogger.Infof(resolvedLog)
+            traceFunc(resolvedLog)
+        } else {
+            // record detail in fail log
+            failLogger.Debugf(traceStr)
+            failLog := fmt.Sprintf("F: %s (%v, %s) %v\n", cname, remoteIP, asn, labels)
+            failLogger.Infof(failLog)
+            traceFunc(failLog)
+        }
+    }
 
     // check if already resolved / cached
     key := strings.Join([]string{
@@ -388,9 +454,7 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
             url: url,
             resolve: keyResolved.resolve,
         }
-        cachedLog := fmt.Sprintf("Cached: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
-        traceFunc(cachedLog)
-        logger.Infof(cachedLog)
+        logFunc(url, "C") // C for cache
         return
     }
 
@@ -435,16 +499,13 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
         url: url,
         resolve: resolve,
     }
-    resolvedLog := fmt.Sprintf("Resolved: %s (%v, %s) %v\n", url, remoteIP, asn, labels)
-    traceFunc(resolvedLog)
-    logger.Infof(resolvedLog)
+    logFunc(url, "R") // R for resolve
     return
 }
 
 func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
         labels []string, remoteIP net.IP, asn string, scheme string) (resolve string, repo string) {
     traceFunc := func(s string) {
-        logger.Debugf(s)
         if trace {
             *traceStr += s
         }
@@ -592,7 +653,6 @@ func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
 func ResolveExist(res *api.QueryTableResult, traceStr *string, trace bool,
         oldResolve string) (resolve string, repo string) {
     traceFunc := func(s string) {
-        logger.Debugf(s)
         if trace {
             *traceStr += s
         }
@@ -641,15 +701,15 @@ func ResolvedTicker() {
         for {
             t := <-ticker.C
             cur := t.Unix()
-            logger.Debugf("Resolved GC starts\n")
+            cacheGCLogger.Infof("Resolved GC starts\n")
             for k, v := range resolved {
                 if cur - v.start >= config.CacheTime &&
                         cur - v.last >= config.CacheTime {
                     delete(resolved, k)
-                    logger.Debugf("Resolved GC %s %s\n", k, v.url)
+                    cacheGCLogger.Infof("Resolved GC %s %s\n", k, v.url)
                 }
             }
-            logger.Debugf("Resolved GC finished\n")
+            cacheGCLogger.Infof("Resolved GC finished\n")
         }
     }()
 }
@@ -782,12 +842,18 @@ func main() {
     flag.Parse()
     LoadConfig(*configPtr, *debugPtr)
 
+    err := InitLoggers()
+    if err != nil {
+        logger.Errorf("Can not open log file\n")
+        os.Exit(1)
+    }
+
     OpenInfluxDB()
 
     LoadMirrorZD(config.MirrorZDDirectory)
 
     signalChannel := make(chan os.Signal, 1)
-    signal.Notify(signalChannel, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2)
+    signal.Notify(signalChannel, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2, syscall.SIGWINCH)
     go func(){
         for sig := range signalChannel {
             switch sig {
@@ -798,7 +864,14 @@ func main() {
                 logger.Infof("Got A USR1 Signal! Now Reloading config.json....\n")
                 LoadConfig(*configPtr, *debugPtr)
             case syscall.SIGUSR2:
-                logger.Infof("Got A USR2 Signal! Now Flush Resolved....\n")
+                logger.Infof("Got A USR2 Signal! Now Reopen log file....\n")
+                InitLoggers()
+                err := InitLoggers()
+                if err != nil {
+                    logger.Errorf("Can not open log file\n")
+                }
+            case syscall.SIGWINCH:
+                logger.Infof("Got A WINCH Signal! Now Flush Resolved....\n")
                 ResolvedInit()
             }
         }
