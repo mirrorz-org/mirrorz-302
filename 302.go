@@ -206,7 +206,11 @@ func Handler(w http.ResponseWriter, r *http.Request) {
     } else if url == "" || err != nil {
         http.NotFound(w, r)
     } else {
-        http.Redirect(w, r, fmt.Sprintf("%s%s", url, tail), http.StatusFound)
+        query := ""
+        if r.URL.RawQuery != "" {
+            query = "?" + r.URL.RawQuery
+        }
+        http.Redirect(w, r, fmt.Sprintf("%s%s%s", url, tail, query), http.StatusFound)
     }
 }
 
