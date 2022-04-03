@@ -8,6 +8,7 @@ import (
     "math/rand"
     "time"
     "errors"
+    "sync"
 
     "context"
     "github.com/influxdata/influxdb-client-go/v2"
@@ -169,8 +170,10 @@ func LoadConfig (path string, debug bool) (err error) {
     return
 }
 
-var AbbrToEndpoints map[string][]EndpointInternal
-var LabelToResolve map[string]string
+// map[string][]EndpointInternal
+var AbbrToEndpoints sync.Map
+// map[string]string
+var LabelToResolve sync.Map
 
 func Handler(w http.ResponseWriter, r *http.Request) {
     // [1:] for no heading `/`
@@ -182,7 +185,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
         labels := Host(r)
         scheme := Scheme(r)
         if len(labels) != 0 {
-            resolve, ok := LabelToResolve[labels[len(labels)-1]]
+            resolve, ok := LabelToResolve.Load(labels[len(labels)-1])
             if ok {
                 http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, resolve), http.StatusFound)
                 return
@@ -409,7 +412,8 @@ type Resolved struct {
     resolve string // only used in resolveExist
 }
 
-var resolved map[string]Resolved
+// map[string]Resolved
+var resolved sync.Map
 
 func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr string, err error) {
     traceFunc := func(s string) {
@@ -452,23 +456,25 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
         scheme,
         strings.Join(labels, "-"),
     }, "+")
-    keyResolved, prs := resolved[key]
+    keyResolved, prs := resolved.Load(key)
 
     // all valid, use cached result
     cur := time.Now().Unix()
-    if prs &&
-            cur - keyResolved.last < config.CacheTime &&
+    if prs {
+        keyResolved, ok := keyResolved.(Resolved)
+        if ok && cur - keyResolved.last < config.CacheTime &&
             cur - keyResolved.start < config.CacheTime {
-        url = keyResolved.url
-        // update timestamp
-        resolved[key] = Resolved {
-            start: keyResolved.start,
-            last: cur,
-            url: url,
-            resolve: keyResolved.resolve,
+            url = keyResolved.url
+            // update timestamp
+            resolved.Store(key, Resolved {
+                start: keyResolved.start,
+                last: cur,
+                url: url,
+                resolve: keyResolved.resolve,
+            })
+            logFunc(url, Score{}, "C") // C for cache
+            return
         }
-        logFunc(url, Score{}, "C") // C for cache
-        return
     }
 
     query := fmt.Sprintf(`from(bucket:"%s")
@@ -488,10 +494,12 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     var resolve string
     var repo string
 
-    if prs &&
-            cur - keyResolved.last < config.CacheTime &&
+    if prs {
+        keyResolved, ok := keyResolved.(Resolved)
+        if ok && cur - keyResolved.last < config.CacheTime &&
             cur - keyResolved.start >= config.CacheTime {
-        resolve, repo = ResolveExist(res, &traceStr, trace, keyResolved.resolve)
+            resolve, repo = ResolveExist(res, &traceStr, trace, keyResolved.resolve)
+        }
     }
 
     var chosenScore Score
@@ -509,12 +517,12 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
     } else {
         url = fmt.Sprintf("%s://%s%s", scheme, resolve, repo)
     }
-    resolved[key] = Resolved {
+    resolved.Store(key, Resolved {
         start: cur,
         last: cur,
         url: url,
         resolve: resolve,
-    }
+    })
     logFunc(url, chosenScore, "R") // R for resolve
     return
 }
@@ -534,7 +542,11 @@ func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
         record := res.Record()
         abbr := record.ValueByKey("mirror").(string)
         traceFunc(fmt.Sprintf("abbr: %s\n", abbr))
-        endpoints, ok := AbbrToEndpoints[abbr]
+        ep, ok := AbbrToEndpoints.Load(abbr)
+        if !ok {
+            continue
+        }
+        endpoints, ok := ep.([]EndpointInternal)
         if !ok {
             continue
         }
@@ -676,7 +688,11 @@ func ResolveExist(res *api.QueryTableResult, traceStr *string, trace bool,
         record := res.Record()
         abbr := record.ValueByKey("mirror").(string)
         traceFunc(fmt.Sprintf("abbr: %s\n", abbr))
-        endpoints, ok := AbbrToEndpoints[abbr]
+        ep, ok := AbbrToEndpoints.Load(abbr)
+        if !ok {
+            continue
+        }
+        endpoints, ok := ep.([]EndpointInternal)
         if !ok {
             continue
         }
@@ -701,7 +717,10 @@ func ResolveExist(res *api.QueryTableResult, traceStr *string, trace bool,
 }
 
 func ResolvedInit() {
-    resolved = make(map[string]Resolved)
+    resolved.Range(func(k interface{}, v interface{}) bool {
+        resolved.Delete(k)
+        return true
+    })
 }
 
 func ResolvedTicker() {
@@ -714,13 +733,19 @@ func ResolvedTicker() {
             t := <-ticker.C
             cur := t.Unix()
             cacheGCLogger.Infof("Resolved GC starts\n")
-            for k, v := range resolved {
-                if cur - v.start >= config.CacheTime &&
-                        cur - v.last >= config.CacheTime {
-                    delete(resolved, k)
-                    cacheGCLogger.Infof("Resolved GC %s %s\n", k, v.url)
+            resolved.Range(func(k interface{}, v interface{}) bool {
+                r, ok := v.(Resolved)
+                if !ok {
+                    resolved.Delete(k)
+                    return true
                 }
-            }
+                if cur - r.start >= config.CacheTime &&
+                        cur - r.last >= config.CacheTime {
+                    resolved.Delete(k)
+                    cacheGCLogger.Infof("Resolved GC %s %s\n", k, r.url)
+                }
+                return true
+            })
             cacheGCLogger.Infof("Resolved GC finished\n")
         }
     }()
@@ -762,7 +787,7 @@ type MirrorZD struct {
 }
 
 func ProcessEndpoint (e Endpoint) (i EndpointInternal) {
-    LabelToResolve[e.Label] = e.Resolve
+    LabelToResolve.Store(e.Label, e.Resolve)
     i.Label = e.Label
     i.Resolve = e.Resolve
     i.Public = e.Public
@@ -802,8 +827,6 @@ func ProcessEndpoint (e Endpoint) (i EndpointInternal) {
 }
 
 func LoadMirrorZD (path string) (err error) {
-    AbbrToEndpoints = make(map[string][]EndpointInternal)
-    LabelToResolve = make(map[string]string)
     files, err := ioutil.ReadDir(path)
     if err != nil {
         logger.Errorf("LoadMirrorZD: can not open mirrorz.d directory, %v\n", err)
@@ -829,11 +852,12 @@ func LoadMirrorZD (path string) (err error) {
         for _, e := range data.Endpoints {
             endpointsInternal = append(endpointsInternal, ProcessEndpoint(e))
         }
-        AbbrToEndpoints[data.Site.Abbr] = endpointsInternal
+        AbbrToEndpoints.Store(data.Site.Abbr, endpointsInternal)
     }
-    for label, resolve := range LabelToResolve {
+    LabelToResolve.Range(func(label interface{}, resolve interface{}) bool {
         logger.Infof("%s -> %s\n", label, resolve)
-    }
+        return true
+    })
     return
 }
 
