@@ -1,30 +1,20 @@
 # 302 Backend
 
-At [https://mirrors.mirrorz.org](https://mirrors.mirrorz.org) or [https://m.mirrorz.org](https://m.mirrorz.org) a 302 backend is deployed.
+We currently have two 302 backend: 302-js and 302-go
 
-You may visit [https://m.mirrorz.org/archlinux/](https://m.mirrorz.org/archlinux/). Note that only `/${cname}` from the [frontend](https://mirrorz.org/list)/[monitor](https://mirrorz.org/monitor) are valid pathnames.
+302-js is deployed at <https://mirrors.mirrorz.org> or <https://m.mirrorz.org> in short. You may visit <https://m.mirrorz.org/archlinux/>. Note that only `/${cname}` from the [frontend](https://mirrorz.org/list)/[monitor](https://mirrorz.org/monitor) are valid pathnames. Currently this is deployed using Cloudflare Workers. Credentials are configured as environment variables.
 
-Currently this is deployed using Cloudflare Workers. Credentials are configured as environment variables.
+302-go is deployed at <https://mirrors.cernet.edu.cn> and <https://mirrors.cngi.edu.cn>. They only redirect to educational mirror sites.
 
-# 302 Decision
+Currently redirecting is decided from information collected by the [monitor](https://github.com/mirrorz-org/mirrorz-monitor). Two policies are discussed and implemented.
 
-Currently redirecting is decided from information collected by the monitor. Several policies are discussed below. More policies are welcome!
+# 302-js: Newest
 
-## Newest
+In 302-js, users are just redirected to a mirror site with the most up-to-date info; however, this may not offer enough bandwidth.
 
-This is the current policy. But users may experience low bandwidth.
+# 302-go: Nearest
 
-## Nearest
-
-This is not available now as these meta data (location, ISP, etc) are not provided and collected.
-
-## Random
-
-Not practical, one user may be redirected to a mirror synced several weeks ago, resulting in many 404.
-
-# mirrors.edu.cn
-
-We may use the domain name `mirrors.edu.cn` for providing frontend AND 302 backend service if we have shown enough potential.
+In 302-go, users are redirected to a mirror site based on its IP, ASN, etc. Detailed concern is discussed below
 
 ## design concern
 
@@ -41,17 +31,6 @@ We may use the domain name `mirrors.edu.cn` for providing frontend AND 302 backe
   - load balance
   - speed testing from multiple AS
   - manually adjust redirection (enable/disable, probability, etc)
-
-## policy
-
-1. The backend checks `Host` in HTTP header, e.g. `tuna6-ustccmcc-ustcchinanet-sjtugsiyuan.mirrors.edu.cn`, which means the user prefers sjtu siyuan server the most, then ustc in chinanet, ustc in cmcc, then tuna in ipv6, then at mirrorz's own wish.
-2. According to the repo the user request, one potential list of mirror sites is filtered. Filter by whether this mirror site has the repo (e.g. `/archlinux`), has the content (using search backend, e.g. `/archlinux/sth.iso`) (not implemented!), is syncing or not and is public or not.
-3. Rate available mirror sites on the following field: (user preference, speedtest, is in IP range, is in ASN, syncing status).
-    1. For example, user requests `mirrors.edu.cn/archlinux` from `166.111.1.1`, AS4538, and TUNA announces one endpoint `tuna` with range `166.111.0.0, AS4538` and TUNA has archlinux not synced for one hour, the score of the request would be (0, 100M, 16, 1, -3600).
-    2. First drop all the dominated scores, since they are not better than dominating mirror sites. For example, (1, 1000M, 18, 0, -3600) dominates (0, 100M, 16, 0, -36000). For the detailed definition of domanite, please look it up in the code.
-    3. Then "randomly" choose one mirror site as they are "optimal" to some extent.
-    4. Especially, when there is only syncing status available for the score of one request, we "randomly" choose one mirror from the optimal half.
-    5. "Randomly" does not meaning uniformly randomly, the probability of being chosen can be adjusted by the operator (not implemented, to be implemented).
 
 ## mirrorz.d.json
 
