@@ -787,8 +787,9 @@ type MirrorZD struct {
 }
 
 func ProcessEndpoint (e Endpoint) (i EndpointInternal) {
-    LabelToResolve.Store(e.Label, e.Resolve)
-    i.Label = e.Label
+    Label := strings.ReplaceAll(e.Label, "-", "")
+    LabelToResolve.Store(Label, e.Resolve)
+    i.Label = Label
     i.Resolve = e.Resolve
     i.Public = e.Public
     // Filter
