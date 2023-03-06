@@ -7,6 +7,6 @@
     compress
     sharedscripts
     postrotate
-        /bin/kill -USR2 `cat /run/mirrorzd.pid 2>/dev/null` 2>/dev/null || true
+        systemctl kill --signal=USR2 mirrorzd.service 2>/dev/null || true
     endscript
 }
