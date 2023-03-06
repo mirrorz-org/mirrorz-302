@@ -1,8 +1,8 @@
 package main
 
 import (
-	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -16,7 +16,6 @@ import (
 	"github.com/influxdata/influxdb-client-go/v2/api"
 
 	"encoding/json"
-	"io/ioutil"
 	"path/filepath"
 
 	"flag"
@@ -42,9 +41,6 @@ type Config struct {
 	DomainLength      int    `json:"domain-length"`
 	CacheTime         int64  `json:"cache-time"`
 	LogDirectory      string `json:"log-directory"`
-	PidFile           string `json:"pid-file"`
-	Uid               int    `json:"uid"`
-	Gid               int    `json:"gid"`
 }
 
 var logger = loggo.GetLogger("mirrorzd") // to stderr
@@ -105,7 +101,7 @@ func LoadConfig(path string, debug bool) (err error) {
 		loggo.ConfigureLoggers("mirrorzd=INFO")
 	}
 
-	file, err := ioutil.ReadFile(path)
+	file, err := os.ReadFile(path)
 	if err != nil {
 		logger.Errorf("LoadConfig ReadFile failed: %v\n", err)
 		return
@@ -153,10 +149,6 @@ func LoadConfig(path string, debug bool) (err error) {
 	// If you changed LogDirectory via SIGUSR1, you should issue SIGUSR2 manually
 	if config.LogDirectory == "" {
 		config.LogDirectory = "/var/log/mirrorzd/"
-	}
-	// If you changed PidFile via SIGUSR1, you should restart the daemon manually
-	if config.PidFile == "" {
-		config.PidFile = "/run/mirrorzd.pid"
 	}
 	logger.Debugf("LoadConfig InfluxDB URL: %s\n", config.InfluxDBURL)
 	logger.Debugf("LoadConfig InfluxDB Org: %s\n", config.InfluxDBOrg)
@@ -243,7 +235,11 @@ func ASN(ip net.IP) (asn string) {
 		return
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Errorf("IPASN read body failed: %v\n", err)
+		return
+	}
 	asn = string(body)
 	return
 }
@@ -829,7 +825,7 @@ func ProcessEndpoint(e Endpoint) (i EndpointInternal) {
 }
 
 func LoadMirrorZD(path string) (err error) {
-	files, err := ioutil.ReadDir(path)
+	files, err := os.ReadDir(path)
 	if err != nil {
 		logger.Errorf("LoadMirrorZD: can not open mirrorz.d directory, %v\n", err)
 		return
@@ -838,7 +834,7 @@ func LoadMirrorZD(path string) (err error) {
 		if !strings.HasSuffix(file.Name(), ".json") {
 			continue
 		}
-		content, err := ioutil.ReadFile(filepath.Join(path, file.Name()))
+		content, err := os.ReadFile(filepath.Join(path, file.Name()))
 		if err != nil {
 			logger.Errorf("LoadMirrorZD: read %s failed\n", file.Name())
 			continue
@@ -872,26 +868,6 @@ func CloseInfluxDB() {
 	client.Close()
 }
 
-func DropPrivilege() (err error) {
-	uid := syscall.Getuid()
-	gid := syscall.Getgid()
-	if uid == 0 || gid == 0 {
-		if config.Uid == 0 || config.Gid == 0 {
-			err = errors.New("config.json not filled")
-			return
-		}
-		err = syscall.Setgid(config.Gid)
-		if err != nil {
-			return
-		}
-		err = syscall.Setuid(config.Uid)
-		if err != nil {
-			return
-		}
-	}
-	return
-}
-
 func main() {
 	rand.Seed(time.Now().Unix())
 
@@ -902,19 +878,6 @@ func main() {
 	err := LoadConfig(*configPtr, *debugPtr)
 	if err != nil {
 		logger.Errorf("Can not open config file: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Note, write pidfile may require privilege
-	err = ioutil.WriteFile(config.PidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
-	if err != nil {
-		logger.Errorf("Can not open pid file: %v\n", err)
-		os.Exit(1)
-	}
-
-	err = DropPrivilege()
-	if err != nil {
-		logger.Errorf("Can not run as uid %d gid %d: %v\n", config.Uid, config.Gid, err)
 		os.Exit(1)
 	}
 
@@ -942,7 +905,6 @@ func main() {
 				LoadConfig(*configPtr, *debugPtr)
 			case syscall.SIGUSR2:
 				logger.Infof("Got A USR2 Signal! Now Reopen log file....\n")
-				InitLoggers()
 				err := InitLoggers()
 				if err != nil {
 					logger.Errorf("Can not open log file\n")

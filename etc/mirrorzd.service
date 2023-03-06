@@ -6,7 +6,7 @@ Requires=ipasn.service
 
 [Service]
 Type=simple
-PIDFile=/run/mirrorzd.pid
+User=mirrorz
 ExecStart=/usr/local/sbin/mirrorzd -config /etc/mirrorzd/config.json
 TimeoutStopSec=5
 KillMode=process
