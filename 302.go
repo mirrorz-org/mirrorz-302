@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -57,36 +58,37 @@ func LoggerFileFormatter(entry loggo.Entry) string {
 	return fmt.Sprintf("%s %s", ts, entry.Message)
 }
 
-func InitLoggers() (err error) {
-	InitLogger := func(logfile string) (logger loggo.Logger, err error) {
-		context := loggo.NewContext(loggo.INFO) // TODO: configurable
-		// Note: how about old file when reload via USR2 (e.g. logrotate)
-		f, err := os.OpenFile(logfile, os.O_CREATE|os.O_RDWR|os.O_APPEND, os.ModeAppend|0600)
-		if err != nil {
-			return
-		}
-		err = context.AddWriter("default", loggo.NewSimpleWriter(f, LoggerFileFormatter))
-		if err != nil {
-			return
-		}
-		logger = context.GetLogger("default")
+func InitLogger(filename string) (logger loggo.Logger, err error) {
+	context := loggo.NewContext(loggo.INFO) // TODO: configurable
+	// Note: how about old file when reload via USR2 (e.g. logrotate)
+	logfile := path.Join(config.LogDirectory, filename)
+	f, err := os.OpenFile(logfile, os.O_CREATE|os.O_RDWR|os.O_APPEND, os.ModeAppend|0600)
+	if err != nil {
 		return
 	}
+	err = context.AddWriter("default", loggo.NewSimpleWriter(f, LoggerFileFormatter))
+	if err != nil {
+		return
+	}
+	logger = context.GetLogger("default")
+	return
+}
 
+func InitLoggers() (err error) {
 	// global resolveLogger
-	resolveLogger, err = InitLogger(config.LogDirectory + "resolve.log")
+	resolveLogger, err = InitLogger("resolve.log")
 	if err != nil {
 		return
 	}
 
 	// global failLogger
-	failLogger, err = InitLogger(config.LogDirectory + "fail.log")
+	failLogger, err = InitLogger("fail.log")
 	if err != nil {
 		return
 	}
 
 	// global cacheGCLogger
-	cacheGCLogger, err = InitLogger(config.LogDirectory + "gc.log")
+	cacheGCLogger, err = InitLogger("gc.log")
 	if err != nil {
 		return
 	}
@@ -106,7 +108,7 @@ func LoadConfig(path string, debug bool) (err error) {
 		logger.Errorf("LoadConfig ReadFile failed: %v\n", err)
 		return
 	}
-	err = json.Unmarshal([]byte(file), &config)
+	err = json.Unmarshal(file, &config)
 	if err != nil {
 		logger.Errorf("LoadConfig json Unmarshal failed: %v\n", err)
 		return
