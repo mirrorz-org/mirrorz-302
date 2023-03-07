@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -43,51 +44,65 @@ type Config struct {
 	LogDirectory      string `json:"log-directory"`
 }
 
-var logger = loggo.GetLogger("mirrorzd") // to stderr
-var resolveLogger loggo.Logger
-var failLogger loggo.Logger
-var cacheGCLogger loggo.Logger
-var config Config
+type Logger struct {
+	loggo.Logger
+	f *os.File
+}
 
-var client influxdb2.Client
-var queryAPI api.QueryAPI
+var (
+	logger        = loggo.GetLogger("mirrorzd") // to stderr
+	resolveLogger Logger
+	failLogger    Logger
+	cacheGCLogger Logger
+	config        Config
+
+	client   influxdb2.Client
+	queryAPI api.QueryAPI
+)
 
 func LoggerFileFormatter(entry loggo.Entry) string {
 	ts := entry.Timestamp.In(time.UTC).Format("2006-01-02 15:04:05")
 	return fmt.Sprintf("%s %s", ts, entry.Message)
 }
 
-func InitLoggers() (err error) {
-	InitLogger := func(logfile string) (logger loggo.Logger, err error) {
-		context := loggo.NewContext(loggo.INFO) // TODO: configurable
-		// Note: how about old file when reload via USR2 (e.g. logrotate)
-		f, err := os.OpenFile(logfile, os.O_CREATE|os.O_RDWR|os.O_APPEND, os.ModeAppend|0600)
-		if err != nil {
-			return
-		}
-		err = context.AddWriter("default", loggo.NewSimpleWriter(f, LoggerFileFormatter))
-		if err != nil {
-			return
-		}
-		logger = context.GetLogger("default")
+func (l *Logger) Open(filename string, level loggo.Level) (err error) {
+	context := loggo.NewContext(level)
+	logfile := path.Join(config.LogDirectory, filename)
+	f, err := os.OpenFile(logfile, os.O_CREATE|os.O_RDWR|os.O_APPEND, os.ModeAppend|0600)
+	if err != nil {
 		return
 	}
-
-	// global resolveLogger
-	resolveLogger, err = InitLogger(config.LogDirectory + "resolve.log")
+	err = context.AddWriter("default", loggo.NewSimpleWriter(f, LoggerFileFormatter))
 	if err != nil {
+		return
+	}
+	l.Logger = context.GetLogger("default")
+	err = l.f.Close()
+	l.f = f
+	return
+}
+
+func (l *Logger) Close() (err error) {
+	if l.f != nil {
+		err = l.f.Close()
+		l.f = nil
+	}
+	return
+}
+
+func InitLoggers() (err error) {
+	// global resolveLogger
+	if err = resolveLogger.Open("resolve.log", loggo.INFO); err != nil {
 		return
 	}
 
 	// global failLogger
-	failLogger, err = InitLogger(config.LogDirectory + "fail.log")
-	if err != nil {
+	if err = failLogger.Open("fail.log", loggo.INFO); err != nil {
 		return
 	}
 
 	// global cacheGCLogger
-	cacheGCLogger, err = InitLogger(config.LogDirectory + "gc.log")
-	if err != nil {
+	if err = cacheGCLogger.Open("gc.log", loggo.INFO); err != nil {
 		return
 	}
 
@@ -106,7 +121,7 @@ func LoadConfig(path string, debug bool) (err error) {
 		logger.Errorf("LoadConfig ReadFile failed: %v\n", err)
 		return
 	}
-	err = json.Unmarshal([]byte(file), &config)
+	err = json.Unmarshal(file, &config)
 	if err != nil {
 		logger.Errorf("LoadConfig json Unmarshal failed: %v\n", err)
 		return
@@ -148,7 +163,7 @@ func LoadConfig(path string, debug bool) (err error) {
 	}
 	// If you changed LogDirectory via SIGUSR1, you should issue SIGUSR2 manually
 	if config.LogDirectory == "" {
-		config.LogDirectory = "/var/log/mirrorzd/"
+		config.LogDirectory = "/var/log/mirrorzd"
 	}
 	logger.Debugf("LoadConfig InfluxDB URL: %s\n", config.InfluxDBURL)
 	logger.Debugf("LoadConfig InfluxDB Org: %s\n", config.InfluxDBOrg)
