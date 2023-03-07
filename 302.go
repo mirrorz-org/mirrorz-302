@@ -413,9 +413,13 @@ type Resolved struct {
 var resolved sync.Map
 
 func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr string, err error) {
+	traceBuilder := new(strings.Builder)
+	defer func() {
+		traceStr = traceBuilder.String()
+	}()
 	traceFunc := func(s string) {
 		if trace {
-			traceStr += s
+			traceBuilder.WriteString(s)
 		}
 	}
 
@@ -495,14 +499,14 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
 		keyResolved, ok := keyResolved.(Resolved)
 		if ok && cur-keyResolved.last < config.CacheTime &&
 			cur-keyResolved.start >= config.CacheTime {
-			resolve, repo = ResolveExist(res, &traceStr, trace, keyResolved.resolve)
+			resolve, repo = ResolveExist(res, traceBuilder, trace, keyResolved.resolve)
 		}
 	}
 
 	var chosenScore Score
 	if resolve == "" && repo == "" {
 		// the above IF does not hold or resolveNotExist
-		chosenScore = ResolveBest(res, &traceStr, trace, labels, remoteIP, asn, scheme)
+		chosenScore = ResolveBest(res, traceBuilder, trace, labels, remoteIP, asn, scheme)
 		resolve = chosenScore.resolve
 		repo = chosenScore.repo
 	}
@@ -524,11 +528,11 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
 	return
 }
 
-func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
+func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace bool,
 	labels []string, remoteIP net.IP, asn string, scheme string) (chosenScore Score) {
 	traceFunc := func(s string) {
 		if trace {
-			*traceStr += s
+			traceBuilder.WriteString(s)
 		}
 	}
 
@@ -671,11 +675,11 @@ func ResolveBest(res *api.QueryTableResult, traceStr *string, trace bool,
 	return
 }
 
-func ResolveExist(res *api.QueryTableResult, traceStr *string, trace bool,
+func ResolveExist(res *api.QueryTableResult, traceBuilder *strings.Builder, trace bool,
 	oldResolve string) (resolve string, repo string) {
 	traceFunc := func(s string) {
 		if trace {
-			*traceStr += s
+			traceBuilder.WriteString(s)
 		}
 	}
 
