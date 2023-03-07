@@ -92,20 +92,17 @@ func (l *Logger) Close() (err error) {
 
 func InitLoggers() (err error) {
 	// global resolveLogger
-	err = resolveLogger.Open("resolve.log", loggo.INFO)
-	if err != nil {
+	if err = resolveLogger.Open("resolve.log", loggo.INFO); err != nil {
 		return
 	}
 
 	// global failLogger
-	err = failLogger.Open("fail.log", loggo.INFO)
-	if err != nil {
+	if err = failLogger.Open("fail.log", loggo.INFO); err != nil {
 		return
 	}
 
 	// global cacheGCLogger
-	err = cacheGCLogger.Open("gc.log", loggo.INFO)
-	if err != nil {
+	if err = cacheGCLogger.Open("gc.log", loggo.INFO); err != nil {
 		return
 	}
 
