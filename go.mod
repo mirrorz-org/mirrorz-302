@@ -1,6 +1,6 @@
 module mirrorzd
 
-go 1.16
+go 1.18
 
 require (
 	github.com/influxdata/influxdb-client-go/v2 v2.4.0 // indirect
