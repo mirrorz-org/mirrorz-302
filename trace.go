@@ -6,23 +6,23 @@ import (
 	"strings"
 )
 
-type TraceFunc func(format string, args ...any)
-
 type tracerKey struct{}
 
-// For use in context.WithValue
+// TracerKey can be used as a key in context.WithValue
 var TracerKey = tracerKey{}
 
+// A Tracer is a convenient string builder for accumulating debug output. It is intended to be passed with a context.Context.
 type Tracer interface {
 	io.WriterTo
 	fmt.Stringer
 	Printf(format string, args ...any)
 }
 
-type bufTracer struct {
-	b strings.Builder
-}
-
+// NewTracer returns a new Tracer.
+// If enabled, the returned Tracer will record trace data.
+// Otherwise, it will be a no-op.
+//
+// A Tracer cannot be toggled after it is created.
 func NewTracer(enable bool) Tracer {
 	if enable {
 		return new(bufTracer)
@@ -30,7 +30,12 @@ func NewTracer(enable bool) Tracer {
 	return new(nopTracer)
 }
 
-// Tracef implements the Tracer interface.
+// A bufTracer is a Tracer that records traces in a buffer.
+type bufTracer struct {
+	b strings.Builder
+}
+
+// Printf implements the Tracer interface.
 func (t *bufTracer) Printf(format string, args ...any) {
 	fmt.Fprintf(&t.b, format, args...)
 }
@@ -46,9 +51,10 @@ func (t *bufTracer) WriteTo(w io.Writer) (n int64, err error) {
 	return int64(N), err
 }
 
+// A nopTracer is a Tracer that discards all traces.
 type nopTracer struct{}
 
-// Tracef implements the Tracer interface.
+// Printf implements the Tracer interface.
 func (t *nopTracer) Printf(format string, args ...any) {}
 
 // String implements the fmt.Stringer interface.

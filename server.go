@@ -38,8 +38,8 @@ func (s *MirrorZ302Server) InitLoggers() (err error) {
 
 // ServeHTTP implements the http.Handler interface.
 func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// [1:] for no heading `/`
-	pathArr := strings.SplitN(r.URL.Path[1:], "/", 2)
+	// Remove leading '/'
+	pathParts := strings.SplitN(r.URL.Path[1:], "/", 2)
 
 	if r.URL.Path == "/" {
 		labels := Host(r)
@@ -55,10 +55,10 @@ func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cname := pathArr[0]
+	cname := pathParts[0]
 	tail := ""
-	if len(pathArr) == 2 {
-		tail = "/" + pathArr[1]
+	if len(pathParts) == 2 {
+		tail = "/" + pathParts[1]
 	}
 
 	_, traceEnabled := r.URL.Query()["trace"]

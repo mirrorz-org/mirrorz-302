@@ -2,25 +2,20 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
+	"os/signal"
+	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/influxdata/influxdb-client-go/v2/api"
-
-	"encoding/json"
-
-	"flag"
-
 	"github.com/juju/loggo"
-
-	"sort"
-
-	"os"
-	"os/signal"
-	"syscall"
 )
 
 type Config struct {
@@ -194,8 +189,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	return
 }
 
-func ResolveBest(ctx context.Context, res *api.QueryTableResult,
-	meta RequestMeta) (chosenScore Score) {
+func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta RequestMeta) (chosenScore Score) {
 	tracer := ctx.Value(TracerKey).(Tracer)
 	traceFunc := tracer.Printf
 
