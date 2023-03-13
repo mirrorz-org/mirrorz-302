@@ -8,6 +8,31 @@ import (
 	"time"
 )
 
+type RequestMeta struct {
+	Scheme string
+	IP     net.IP
+	ASN    string
+	Labels []string
+}
+
+func ParseRequestMeta(r *http.Request) (meta RequestMeta) {
+	meta.Scheme = Scheme(r)
+	meta.IP = IP(r)
+	meta.ASN = ASN(meta.IP)
+	meta.Labels = Host(r)
+	return
+}
+
+func (m *RequestMeta) V4Only() bool {
+	l := len(m.Labels)
+	return l != 0 && m.Labels[l-1] == "4"
+}
+
+func (m *RequestMeta) V6Only() bool {
+	l := len(m.Labels)
+	return l != 0 && m.Labels[l-1] == "6"
+}
+
 func Scheme(r *http.Request) (scheme string) {
 	scheme = r.Header.Get("X-Forwarded-Proto")
 	if scheme == "" {

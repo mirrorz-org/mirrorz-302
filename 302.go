@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -117,26 +116,25 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	tracer := ctx.Value(TracerKey).(Tracer)
 	traceFunc := tracer.Tracef
 
-	labels := Host(r)
-	remoteIP := IP(r)
-	asn := ASN(remoteIP)
-	scheme := Scheme(r)
-	traceFunc("labels: %v\n", labels)
-	traceFunc("IP: %v\n", remoteIP)
-	traceFunc("ASN: %s\n", asn)
-	traceFunc("Scheme: %s\n", scheme)
+	meta := ParseRequestMeta(r)
+	traceFunc("labels: %v\n", meta.Labels)
+	traceFunc("IP: %v\n", meta.IP)
+	traceFunc("ASN: %s\n", meta.ASN)
+	traceFunc("Scheme: %s\n", meta.Scheme)
 
 	logFunc := func(url string, score Score, char string) {
 		if url != "" {
 			// record detail in resolve log
 			s.resolveLogger.Debugf(tracer.String())
-			resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s\n", char, url, remoteIP, asn, labels, score.LogString())
+			resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s\n",
+				char, url, meta.IP, meta.ASN, meta.Labels,
+				score.LogString())
 			s.resolveLogger.Infof(resolvedLog)
 			traceFunc(resolvedLog)
 		} else {
 			// record detail in fail log
 			s.failLogger.Debugf(tracer.String())
-			failLog := fmt.Sprintf("F: %s (%v, %s) %v\n", cname, remoteIP, asn, labels)
+			failLog := fmt.Sprintf("F: %s (%v, %s) %v\n", cname, meta.IP, meta.ASN, meta.Labels)
 			s.failLogger.Infof(failLog)
 			traceFunc(failLog)
 		}
@@ -144,11 +142,11 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 
 	// check if already resolved / cached
 	key := strings.Join([]string{
-		remoteIP.String(),
+		meta.IP.String(),
 		cname,
-		asn,
-		scheme,
-		strings.Join(labels, "-"),
+		meta.ASN,
+		meta.Scheme,
+		strings.Join(meta.Labels, "-"),
 	}, "+")
 	keyResolved, cacheHit := s.resolved.Load(key)
 
@@ -180,7 +178,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	var chosenScore Score
 	if resolve == "" && repo == "" {
 		// the above IF does not hold or resolveNotExist
-		chosenScore = ResolveBest(ctx, res, labels, remoteIP, asn, scheme)
+		chosenScore = ResolveBest(ctx, res, meta)
 		resolve = chosenScore.resolve
 		repo = chosenScore.repo
 	}
@@ -190,7 +188,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	} else if strings.HasPrefix(repo, "http://") || strings.HasPrefix(repo, "https://") {
 		url = repo
 	} else {
-		url = fmt.Sprintf("%s://%s%s", scheme, resolve, repo)
+		url = fmt.Sprintf("%s://%s%s", meta.Scheme, resolve, repo)
 	}
 	s.resolved.Store(key, Resolved{
 		start:   cur,
@@ -203,12 +201,12 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 }
 
 func ResolveBest(ctx context.Context, res *api.QueryTableResult,
-	labels []string, remoteIP net.IP, asn string, scheme string) (chosenScore Score) {
+	meta RequestMeta) (chosenScore Score) {
 	tracer := ctx.Value(TracerKey).(Tracer)
 	traceFunc := tracer.Tracef
 
 	var scores Scores
-	remoteIPv4 := remoteIP.To4() != nil
+	remoteIPv4 := meta.IP.To4() != nil
 
 	for res.Next() {
 		record := res.Record()
@@ -229,36 +227,36 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult,
 				traceFunc("    not v6 endpoint\n")
 				continue
 			}
-			if scheme == "http" && !endpoint.Filter.NOSSL {
+			if meta.Scheme == "http" && !endpoint.Filter.NOSSL {
 				traceFunc("    not nossl endpoint\n")
 				continue
 			}
-			if scheme == "https" && !endpoint.Filter.SSL {
+			if meta.Scheme == "https" && !endpoint.Filter.SSL {
 				traceFunc("    not ssl endpoint\n")
 				continue
 			}
-			if (len(labels) != 0 && labels[len(labels)-1] == "4") && !endpoint.Filter.V4Only {
+			if meta.V4Only() && !endpoint.Filter.V4Only {
 				traceFunc("    label v4only but endpoint not v4only\n")
 				continue
 			}
-			if (len(labels) != 0 && labels[len(labels)-1] == "6") && !endpoint.Filter.V6Only {
+			if meta.V6Only() && !endpoint.Filter.V6Only {
 				traceFunc("    label v6only but endpoint not v6only\n")
 				continue
 			}
 			score := Score{pos: 0, as: 0, mask: 0, delta: 0}
 			score.delta = int(record.Value().(int64))
-			for index, label := range labels {
+			for index, label := range meta.Labels {
 				if label == endpoint.Label {
 					score.pos = index + 1
 				}
 			}
 			for _, endpointASN := range endpoint.RangeASN {
-				if endpointASN == asn {
+				if endpointASN == meta.ASN {
 					score.as = 1
 				}
 			}
 			for _, ipnet := range endpoint.RangeCIDR {
-				if remoteIP != nil && ipnet.Contains(remoteIP) {
+				if meta.IP != nil && ipnet.Contains(meta.IP) {
 					mask, _ := ipnet.Mask.Size()
 					if mask > score.mask {
 						score.mask = mask
