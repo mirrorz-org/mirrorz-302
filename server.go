@@ -45,7 +45,7 @@ func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		labels := Host(r)
 		scheme := Scheme(r)
 		if len(labels) != 0 {
-			resolve, ok := LabelToResolve.Load(labels[len(labels)-1])
+			resolve, ok := mirrorzd.ResolveLabel(labels[len(labels)-1])
 			if ok {
 				http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, resolve), http.StatusFound)
 				return

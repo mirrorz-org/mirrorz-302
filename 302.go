@@ -33,8 +33,9 @@ type Config struct {
 }
 
 var (
-	logger = loggo.GetLogger("mirrorzd") // to stderr
 	config Config
+
+	mirrorzd = NewMirrorZD()
 )
 
 func LoadConfig(path string, debug bool) (config Config, err error) {
@@ -199,7 +200,7 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta RequestMet
 		record := res.Record()
 		abbr := record.ValueByKey("mirror").(string)
 		traceFunc("abbr: %s\n", abbr)
-		endpoints, ok := LookupMirrorZD(abbr)
+		endpoints, ok := mirrorzd.Lookup(abbr)
 		if !ok {
 			continue
 		}
@@ -300,7 +301,7 @@ outerLoop:
 		record := res.Record()
 		abbr := record.ValueByKey("mirror").(string)
 		traceFunc("abbr: %s\n", abbr)
-		endpoints, ok := LookupMirrorZD(abbr)
+		endpoints, ok := mirrorzd.Lookup(abbr)
 		if !ok {
 			continue
 		}
@@ -343,23 +344,23 @@ func main() {
 
 	config, err := LoadConfig(*configPtr, *debugPtr)
 	if err != nil {
-		logger.Errorf("Can not open config file: %v\n", err)
+		logger.Errorf("Cannot open config file: %v\n", err)
 		os.Exit(1)
 	}
+
+	mirrorzd.Load(config.MirrorZDDirectory)
 
 	server := NewMirrorZ302Server(config)
 
 	// Logfile (or its directory) must be unprivilegd
 	err = server.InitLoggers()
 	if err != nil {
-		logger.Errorf("Can not open log file: %v\n", err)
+		logger.Errorf("Cannot open log file: %v\n", err)
 		os.Exit(1)
 	}
 
 	OpenInfluxDB()
 	defer CloseInfluxDB()
-
-	LoadMirrorZD(config.MirrorZDDirectory)
 
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2, syscall.SIGWINCH)
@@ -368,7 +369,7 @@ func main() {
 			switch sig {
 			case syscall.SIGHUP:
 				logger.Infof("Got A HUP Signal! Now Reloading mirrorz.d.json....\n")
-				LoadMirrorZD(config.MirrorZDDirectory)
+				mirrorzd.Load(config.MirrorZDDirectory)
 			case syscall.SIGUSR1:
 				logger.Infof("Got A USR1 Signal! Now Reloading config.json....\n")
 				LoadConfig(*configPtr, *debugPtr)

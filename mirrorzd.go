@@ -7,7 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/juju/loggo"
 )
+
+var logger = loggo.GetLogger("mirrorzd")
 
 type Endpoint struct {
 	Label   string
@@ -132,19 +136,25 @@ type Site struct {
 	Abbr string `json:"abbr"`
 }
 
-type MirrorZD struct {
+type MirrorZDData struct {
 	Extension string     `json:"extension"`
 	Endpoints []Endpoint `json:"endpoints"`
 	Site      Site       `json:"site"`
 }
 
-// map[string]string
-var LabelToResolve sync.Map
+type MirrorZD struct {
+	// map[string]string
+	labelToResolve sync.Map
 
-// map[string][]EndpointInternal
-var AbbrToEndpoints sync.Map
+	// map[string][]Endpoint
+	abbrToEndpoints sync.Map
+}
 
-func LoadMirrorZD(path string) (err error) {
+func NewMirrorZD() *MirrorZD {
+	return new(MirrorZD)
+}
+
+func (m *MirrorZD) Load(path string) (err error) {
 	files, err := os.ReadDir(path)
 	if err != nil {
 		logger.Errorf("LoadMirrorZD: cannot open mirrorz.d directory: %v\n", err)
@@ -159,7 +169,7 @@ func LoadMirrorZD(path string) (err error) {
 			logger.Errorf("LoadMirrorZD: read %s failed\n", file.Name())
 			continue
 		}
-		var data MirrorZD
+		var data MirrorZDData
 		if err := json.Unmarshal(content, &data); err != nil {
 			logger.Errorf("LoadMirrorZD: Parse %s error: %v\n", file.Name(), err)
 			continue
@@ -167,22 +177,31 @@ func LoadMirrorZD(path string) (err error) {
 		logger.Infof("%+v\n", data)
 
 		for _, e := range data.Endpoints {
-			LabelToResolve.Store(e.Label, e.Resolve)
+			m.labelToResolve.Store(e.Label, e.Resolve)
 		}
-		AbbrToEndpoints.Store(data.Site.Abbr, data.Endpoints)
+		m.abbrToEndpoints.Store(data.Site.Abbr, data.Endpoints)
 	}
-	LabelToResolve.Range(func(label interface{}, resolve interface{}) bool {
+	m.labelToResolve.Range(func(label interface{}, resolve interface{}) bool {
 		logger.Infof("%s -> %s\n", label, resolve)
 		return true
 	})
 	return
 }
 
-func LookupMirrorZD(abbr string) (endpoints []Endpoint, ok bool) {
-	ep, ok := AbbrToEndpoints.Load(abbr)
+func (m *MirrorZD) Lookup(abbr string) (endpoints []Endpoint, ok bool) {
+	ep, ok := m.abbrToEndpoints.Load(abbr)
 	if !ok {
 		return
 	}
 	endpoints, ok = ep.([]Endpoint)
+	return
+}
+
+func (m *MirrorZD) ResolveLabel(label string) (resolve string, ok bool) {
+	r, ok := m.labelToResolve.Load(label)
+	if !ok {
+		return
+	}
+	resolve, ok = r.(string)
 	return
 }
