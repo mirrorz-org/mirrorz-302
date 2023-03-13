@@ -293,6 +293,7 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult,
 			traceFunc("optimal scores: %d %v\n", index, score)
 		}
 	}
+	return
 }
 
 func ResolveExist(ctx context.Context, res *api.QueryTableResult,
@@ -323,11 +324,16 @@ outerLoop:
 	return
 }
 
+func (s *MirrorZ302Server) CachePurge() {
+	s.resolved.Clear()
+}
+
 func (s *MirrorZ302Server) resolvedTicker(c <-chan time.Time) {
 	for t := range c {
 		s.resolved.GC(t, &s.cacheGCLogger)
 	}
 }
+
 func (s *MirrorZ302Server) StartResolvedTicker() {
 	// GC on resolved
 	ticker := time.NewTicker(time.Second * time.Duration(config.CacheTime))
@@ -380,7 +386,7 @@ func main() {
 				}
 			case syscall.SIGWINCH:
 				logger.Infof("Got A WINCH Signal! Now Flush Resolved....\n")
-				server.ResolvedInit()
+				server.CachePurge()
 			}
 		}
 	}()

@@ -53,6 +53,6 @@ func (c *ResolveCache) GC(t time.Time, logger *Logger) {
 	logger.Infof("Resolved GC done at %s\n\n", time.Now())
 }
 
-func (s *MirrorZ302Server) Reset() {
-	s.resolved.Map = sync.Map{}
+func (c *ResolveCache) Clear() {
+	c.Map = sync.Map{}
 }
