@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net"
@@ -111,37 +112,31 @@ func LoadConfig(path string, debug bool) (config Config, err error) {
 	return
 }
 
-func (s *MirrorZ302Server) Resolve(r *http.Request, cname string, trace bool) (url string, traceStr string, err error) {
-	traceBuilder := new(strings.Builder)
-	defer func() {
-		traceStr = traceBuilder.String()
-	}()
-	traceFunc := func(s string) {
-		if trace {
-			traceBuilder.WriteString(s)
-		}
-	}
+func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, err error) {
+	ctx := r.Context()
+	tracer := ctx.Value(TracerKey).(Tracer)
+	traceFunc := tracer.Tracef
 
 	labels := Host(r)
 	remoteIP := IP(r)
 	asn := ASN(remoteIP)
 	scheme := Scheme(r)
-	traceFunc(fmt.Sprintf("labels: %v\n", labels))
-	traceFunc(fmt.Sprintf("IP: %v\n", remoteIP))
-	traceFunc(fmt.Sprintf("ASN: %s\n", asn))
-	traceFunc(fmt.Sprintf("Scheme: %s\n", scheme))
+	traceFunc("labels: %v\n", labels)
+	traceFunc("IP: %v\n", remoteIP)
+	traceFunc("ASN: %s\n", asn)
+	traceFunc("Scheme: %s\n", scheme)
 
 	logFunc := func(url string, score Score, char string) {
 		if url != "" {
 			// record detail in resolve log
-			s.resolveLogger.Debugf(traceStr)
+			s.resolveLogger.Debugf(tracer.String())
 			scoreLog := fmt.Sprintf("%d %d %d %d", score.pos, score.mask, score.as, score.delta)
 			resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s\n", char, url, remoteIP, asn, labels, scoreLog)
 			s.resolveLogger.Infof(resolvedLog)
 			traceFunc(resolvedLog)
 		} else {
 			// record detail in fail log
-			s.failLogger.Debugf(traceStr)
+			s.failLogger.Debugf(tracer.String())
 			failLog := fmt.Sprintf("F: %s (%v, %s) %v\n", cname, remoteIP, asn, labels)
 			s.failLogger.Infof(failLog)
 			traceFunc(failLog)
@@ -174,7 +169,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string, trace bool) (u
 		return
 	}
 
-	res, err := QueryInflux(r.Context(), cname)
+	res, err := QueryInflux(ctx, cname)
 	if err != nil {
 		logger.Errorf("Resolve query: %v\n", err)
 		return
@@ -185,13 +180,13 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string, trace bool) (u
 
 	if ok && cur-keyResolved.last < config.CacheTime &&
 		cur-keyResolved.start >= config.CacheTime {
-		resolve, repo = ResolveExist(res, traceBuilder, trace, keyResolved.resolve)
+		resolve, repo = ResolveExist(ctx, res, keyResolved.resolve)
 	}
 
 	var chosenScore Score
 	if resolve == "" && repo == "" {
 		// the above IF does not hold or resolveNotExist
-		chosenScore = ResolveBest(res, traceBuilder, trace, labels, remoteIP, asn, scheme)
+		chosenScore = ResolveBest(ctx, res, labels, remoteIP, asn, scheme)
 		resolve = chosenScore.resolve
 		repo = chosenScore.repo
 	}
@@ -213,13 +208,10 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string, trace bool) (u
 	return
 }
 
-func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace bool,
+func ResolveBest(ctx context.Context, res *api.QueryTableResult,
 	labels []string, remoteIP net.IP, asn string, scheme string) (chosenScore Score) {
-	traceFunc := func(s string) {
-		if trace {
-			traceBuilder.WriteString(s)
-		}
-	}
+	tracer := ctx.Value(TracerKey).(Tracer)
+	traceFunc := tracer.Tracef
 
 	var scores Scores
 	remoteIPv4 := remoteIP.To4() != nil
@@ -227,36 +219,36 @@ func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace
 	for res.Next() {
 		record := res.Record()
 		abbr := record.ValueByKey("mirror").(string)
-		traceFunc(fmt.Sprintf("abbr: %s\n", abbr))
+		traceFunc("abbr: %s\n", abbr)
 		endpoints, ok := LookupMirrorZD(abbr)
 		if !ok {
 			continue
 		}
 		var scoresEndpoints Scores
 		for _, endpoint := range endpoints {
-			traceFunc(fmt.Sprintf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label))
+			traceFunc("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
 			if remoteIPv4 && !endpoint.Filter.V4 {
-				traceFunc(fmt.Sprintf("    not v4 endpoint\n"))
+				traceFunc("    not v4 endpoint\n")
 				continue
 			}
 			if !remoteIPv4 && !endpoint.Filter.V6 {
-				traceFunc(fmt.Sprintf("    not v6 endpoint\n"))
+				traceFunc("    not v6 endpoint\n")
 				continue
 			}
 			if scheme == "http" && !endpoint.Filter.NOSSL {
-				traceFunc(fmt.Sprintf("    not nossl endpoint\n"))
+				traceFunc("    not nossl endpoint\n")
 				continue
 			}
 			if scheme == "https" && !endpoint.Filter.SSL {
-				traceFunc(fmt.Sprintf("    not ssl endpoint\n"))
+				traceFunc("    not ssl endpoint\n")
 				continue
 			}
 			if (len(labels) != 0 && labels[len(labels)-1] == "4") && !endpoint.Filter.V4Only {
-				traceFunc(fmt.Sprintf("    label v4only but endpoint not v4only\n"))
+				traceFunc("    label v4only but endpoint not v4only\n")
 				continue
 			}
 			if (len(labels) != 0 && labels[len(labels)-1] == "6") && !endpoint.Filter.V6Only {
-				traceFunc(fmt.Sprintf("    label v6only but endpoint not v6only\n"))
+				traceFunc("    label v6only but endpoint not v6only\n")
 				continue
 			}
 			score := Score{pos: 0, as: 0, mask: 0, delta: 0}
@@ -282,14 +274,14 @@ func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace
 
 			score.resolve = endpoint.Resolve
 			score.repo = record.ValueByKey("path").(string)
-			traceFunc(fmt.Sprintf("    score: %v\n", score))
+			traceFunc("    score: %v\n", score)
 
 			//if score.delta < -60*60*24*3 { // 3 days
-			//    traceFunc(fmt.Sprintf("    not up-to-date enough\n"))
+			//    traceFunc("    not up-to-date enough\n")
 			//    continue
 			//}
 			if !endpoint.Public && score.mask == 0 && score.as == 0 {
-				traceFunc(fmt.Sprintf("    not hit private\n"))
+				traceFunc("    not hit private\n")
 				continue
 			}
 			scoresEndpoints = append(scoresEndpoints, score)
@@ -300,15 +292,15 @@ func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace
 			optimalScores := scoresEndpoints.OptimalsExceptDelta() // Delta all the same
 			if len(optimalScores) > 0 && len(optimalScores) != len(scoresEndpoints) {
 				for index, score := range optimalScores {
-					traceFunc(fmt.Sprintf("  optimal scores: %d %v\n", index, score))
+					traceFunc("  optimal scores: %d %v\n", index, score)
 					scores = append(scores, score)
 				}
 			} else {
-				traceFunc(fmt.Sprintf("  first score: %v\n", scoresEndpoints[0]))
+				traceFunc("  first score: %v\n", scoresEndpoints[0])
 				scores = append(scores, scoresEndpoints[0])
 			}
 		} else {
-			traceFunc(fmt.Sprintf("  no score found\n"))
+			traceFunc("  no score found\n")
 		}
 	}
 	if err := res.Err(); err != nil {
@@ -318,7 +310,7 @@ func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace
 
 	if len(scores) > 0 {
 		for index, score := range scores {
-			traceFunc(fmt.Sprintf("scores: %d %v\n", index, score))
+			traceFunc("scores: %d %v\n", index, score)
 		}
 		optimalScores := scores.Optimals()
 		if len(optimalScores) == 0 {
@@ -340,7 +332,7 @@ func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace
 				sort.Sort(candidateScores)
 				chosenScore = candidateScores.RandomHalf()
 				for index, score := range candidateScores {
-					traceFunc(fmt.Sprintf("sorted delta scores: %d %v\n", index, score))
+					traceFunc("sorted delta scores: %d %v\n", index, score)
 				}
 			} else {
 				sort.Sort(optimalScores)
@@ -348,7 +340,7 @@ func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace
 				// randomly choose one mirror not dominated by others
 				//chosenScore = optimalScores.Random()
 				for index, score := range optimalScores {
-					traceFunc(fmt.Sprintf("optimal scores: %d %v\n", index, score))
+					traceFunc("optimal scores: %d %v\n", index, score)
 				}
 			}
 		}
@@ -356,26 +348,23 @@ func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace
 	return
 }
 
-func ResolveExist(res *api.QueryTableResult, traceBuilder *strings.Builder, trace bool,
+func ResolveExist(ctx context.Context, res *api.QueryTableResult,
 	oldResolve string) (resolve string, repo string) {
-	traceFunc := func(s string) {
-		if trace {
-			traceBuilder.WriteString(s)
-		}
-	}
+	tracer := ctx.Value(TracerKey).(Tracer)
+	traceFunc := tracer.Tracef
 
 	found := false
 
 	for res.Next() {
 		record := res.Record()
 		abbr := record.ValueByKey("mirror").(string)
-		traceFunc(fmt.Sprintf("abbr: %s\n", abbr))
+		traceFunc("abbr: %s\n", abbr)
 		endpoints, ok := LookupMirrorZD(abbr)
 		if !ok {
 			continue
 		}
 		for _, endpoint := range endpoints {
-			traceFunc(fmt.Sprintf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label))
+			traceFunc("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
 
 			if oldResolve == endpoint.Resolve {
 				resolve = endpoint.Resolve
@@ -397,7 +386,7 @@ func ResolveExist(res *api.QueryTableResult, traceBuilder *strings.Builder, trac
 func (s *MirrorZ302Server) ResolvedTicker(c <-chan time.Time) {
 	for t := range c {
 		s.cacheGCLogger.Infof("Resolved GC starts\n")
-		s.resolved.GC(t)
+		s.resolved.GC(t, &s.cacheGCLogger)
 		s.cacheGCLogger.Infof("Resolved GC finished\n")
 	}
 }
@@ -415,13 +404,13 @@ func main() {
 	debugPtr := flag.Bool("debug", false, "debug mode")
 	flag.Parse()
 
-	server := NewMirrorZ302Server()
-
 	config, err := LoadConfig(*configPtr, *debugPtr)
 	if err != nil {
 		logger.Errorf("Can not open config file: %v\n", err)
 		os.Exit(1)
 	}
+
+	server := NewMirrorZ302Server()
 
 	// Logfile (or its directory) must be unprivilegd
 	err = server.InitLoggers()

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -18,7 +19,7 @@ type MirrorZ302Server struct {
 
 func NewMirrorZ302Server() *MirrorZ302Server {
 	s := &MirrorZ302Server{}
-	s.resolved = NewResolveCache(0, &s.cacheGCLogger)
+	s.resolved = NewResolveCache(0)
 	return s
 }
 
@@ -60,13 +61,16 @@ func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		tail = "/" + pathArr[1]
 	}
 
-	_, trace := r.URL.Query()["trace"]
+	_, traceEnabled := r.URL.Query()["trace"]
+	tracer := NewTracer(traceEnabled)
+	ctx := context.WithValue(r.Context(), TracerKey, tracer)
+	r = r.WithContext(ctx)
 
-	url, traceStr, err := s.Resolve(r, cname, trace)
+	url, err := s.Resolve(r, cname)
 
-	if trace {
+	if traceEnabled {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		fmt.Fprintf(w, "%s", traceStr)
+		tracer.WriteTo(w)
 	} else if url == "" || err != nil {
 		http.NotFound(w, r)
 	} else {

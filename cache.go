@@ -16,12 +16,11 @@ type Resolved struct {
 type ResolveCache struct {
 	sync.Map // map[string]Resolved
 
-	ttl    int64
-	logger *Logger
+	ttl int64
 }
 
-func NewResolveCache(ttl int64, logger *Logger) *ResolveCache {
-	return &ResolveCache{ttl: ttl, logger: logger}
+func NewResolveCache(ttl int64) *ResolveCache {
+	return &ResolveCache{ttl: ttl}
 }
 
 func (c *ResolveCache) Load(key string) (Resolved, bool) {
@@ -36,7 +35,7 @@ func (c *ResolveCache) Store(key string, v Resolved) {
 	c.Map.Store(key, v)
 }
 
-func (c *ResolveCache) GC(t time.Time) {
+func (c *ResolveCache) GC(t time.Time, logger *Logger) {
 	cur := t.Unix()
 	c.Map.Range(func(k interface{}, v interface{}) bool {
 		r, ok := v.(Resolved)
@@ -47,7 +46,7 @@ func (c *ResolveCache) GC(t time.Time) {
 		if cur-r.start >= config.CacheTime &&
 			cur-r.last >= config.CacheTime {
 			c.Map.Delete(k)
-			c.logger.Infof("Resolved GC %s %s\n", k, r.url)
+			logger.Infof("Resolved GC %s %s\n", k, r.url)
 		}
 		return true
 	})
