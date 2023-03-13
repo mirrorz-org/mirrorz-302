@@ -12,10 +12,14 @@ type MirrorZ302Server struct {
 	resolveLogger Logger
 	failLogger    Logger
 	cacheGCLogger Logger
+
+	resolved *ResolveCache
 }
 
 func NewMirrorZ302Server() *MirrorZ302Server {
-	return &MirrorZ302Server{}
+	s := &MirrorZ302Server{}
+	s.resolved = NewResolveCache(0, &s.cacheGCLogger)
+	return s
 }
 
 func (s *MirrorZ302Server) InitLoggers() (err error) {

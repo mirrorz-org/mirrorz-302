@@ -6,12 +6,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
-	"context"
-
-	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
 
 	"encoding/json"
@@ -44,9 +40,6 @@ type Config struct {
 var (
 	logger = loggo.GetLogger("mirrorzd") // to stderr
 	config Config
-
-	client   influxdb2.Client
-	queryAPI api.QueryAPI
 )
 
 func LoadConfig(path string, debug bool) (config Config, err error) {
@@ -118,17 +111,6 @@ func LoadConfig(path string, debug bool) (config Config, err error) {
 	return
 }
 
-// IP, label to start, last timestamp, url
-type Resolved struct {
-	start   int64 // starting timestamp, namely still check db after some time
-	last    int64 // last update timestamp
-	url     string
-	resolve string // only used in resolveExist
-}
-
-// map[string]Resolved
-var resolved sync.Map
-
 func (s *MirrorZ302Server) Resolve(r *http.Request, cname string, trace bool) (url string, traceStr string, err error) {
 	traceBuilder := new(strings.Builder)
 	defer func() {
@@ -174,36 +156,25 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string, trace bool) (u
 		scheme,
 		strings.Join(labels, "-"),
 	}, "+")
-	keyResolved, prs := resolved.Load(key)
+	keyResolved, ok := s.resolved.Load(key)
 
 	// all valid, use cached result
 	cur := time.Now().Unix()
-	if prs {
-		keyResolved, ok := keyResolved.(Resolved)
-		if ok && cur-keyResolved.last < config.CacheTime &&
-			cur-keyResolved.start < config.CacheTime {
-			url = keyResolved.url
-			// update timestamp
-			resolved.Store(key, Resolved{
-				start:   keyResolved.start,
-				last:    cur,
-				url:     url,
-				resolve: keyResolved.resolve,
-			})
-			logFunc(url, Score{}, "C") // C for cache
-			return
-		}
+	if ok && cur-keyResolved.last < config.CacheTime &&
+		cur-keyResolved.start < config.CacheTime {
+		url = keyResolved.url
+		// update timestamp
+		s.resolved.Store(key, Resolved{
+			start:   keyResolved.start,
+			last:    cur,
+			url:     url,
+			resolve: keyResolved.resolve,
+		})
+		logFunc(url, Score{}, "C") // C for cache
+		return
 	}
 
-	query := fmt.Sprintf(`from(bucket:"%s")
-        |> range(start: -15m)
-        |> filter(fn: (r) => r._measurement == "repo" and r.name == "%s")
-        |> map(fn: (r) => ({_value:r._value,mirror:r.mirror,_time:r._time,path:r.url}))
-        |> tail(n:1)`, config.InfluxDBBucket, cname)
-	// SQL INJECTION!!! (use read only token)
-
-	res, err := queryAPI.Query(context.Background(), query)
-
+	res, err := QueryInflux(r.Context(), cname)
 	if err != nil {
 		logger.Errorf("Resolve query: %v\n", err)
 		return
@@ -212,12 +183,9 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string, trace bool) (u
 	var resolve string
 	var repo string
 
-	if prs {
-		keyResolved, ok := keyResolved.(Resolved)
-		if ok && cur-keyResolved.last < config.CacheTime &&
-			cur-keyResolved.start >= config.CacheTime {
-			resolve, repo = ResolveExist(res, traceBuilder, trace, keyResolved.resolve)
-		}
+	if ok && cur-keyResolved.last < config.CacheTime &&
+		cur-keyResolved.start >= config.CacheTime {
+		resolve, repo = ResolveExist(res, traceBuilder, trace, keyResolved.resolve)
 	}
 
 	var chosenScore Score
@@ -235,7 +203,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string, trace bool) (u
 	} else {
 		url = fmt.Sprintf("%s://%s%s", scheme, resolve, repo)
 	}
-	resolved.Store(key, Resolved{
+	s.resolved.Store(key, Resolved{
 		start:   cur,
 		last:    cur,
 		url:     url,
@@ -343,8 +311,8 @@ func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace
 			traceFunc(fmt.Sprintf("  no score found\n"))
 		}
 	}
-	if res.Err() != nil {
-		logger.Errorf("Resolve query parsing error: %s\n", res.Err().Error())
+	if err := res.Err(); err != nil {
+		logger.Errorf("Resolve query parsing error: %v\n", err)
 		return
 	}
 
@@ -426,30 +394,10 @@ func ResolveExist(res *api.QueryTableResult, traceBuilder *strings.Builder, trac
 	return
 }
 
-func (s *MirrorZ302Server) ResolvedInit() {
-	resolved.Range(func(k interface{}, v interface{}) bool {
-		resolved.Delete(k)
-		return true
-	})
-}
-
 func (s *MirrorZ302Server) ResolvedTicker(c <-chan time.Time) {
 	for t := range c {
-		cur := t.Unix()
 		s.cacheGCLogger.Infof("Resolved GC starts\n")
-		resolved.Range(func(k interface{}, v interface{}) bool {
-			r, ok := v.(Resolved)
-			if !ok {
-				resolved.Delete(k)
-				return true
-			}
-			if cur-r.start >= config.CacheTime &&
-				cur-r.last >= config.CacheTime {
-				resolved.Delete(k)
-				s.cacheGCLogger.Infof("Resolved GC %s %s\n", k, r.url)
-			}
-			return true
-		})
+		s.resolved.GC(t)
 		s.cacheGCLogger.Infof("Resolved GC finished\n")
 	}
 }
@@ -458,15 +406,6 @@ func (s *MirrorZ302Server) StartResolvedTicker() {
 	// GC on resolved
 	ticker := time.NewTicker(time.Second * time.Duration(config.CacheTime))
 	go s.ResolvedTicker(ticker.C)
-}
-
-func OpenInfluxDB() {
-	client = influxdb2.NewClient(config.InfluxDBURL, config.InfluxDBToken)
-	queryAPI = client.QueryAPI(config.InfluxDBOrg)
-}
-
-func CloseInfluxDB() {
-	client.Close()
 }
 
 func main() {
