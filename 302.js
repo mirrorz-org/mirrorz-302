@@ -33,36 +33,64 @@ function is_debug(request) {
             }
         }
     });
-    return ('debug' in params);
+    return ('trace' in params);
 }
 
-function newest(csv) {
+function newest(parsed) {
     let m = -Infinity;
     let url = null;
 
-    for (const line of csv.split('\r\n')) {
-        const arr = line.split(',');
-        if (arr.length < 7)
-            continue
-        if (arr[1] !== "_result")
-            continue
+    for (const mirror of parsed) {
         try {
-            const v = parseInt(arr[4]);
+            const v = parseInt(mirror.value);
             // 0 is a special value, namely unknown!
             // valid range:  v < 0
             if (v == 0)
                 continue;
             if (v > m) {
                 m = v;
-                url = arr[6];
+                url = mirror.url;
             }
         } catch (e) {}
     }
     return url;
 }
 
-function decide(csv) {
-    return newest(csv);
+function decide(parsed) {
+    return newest(parsed);
+}
+
+function parse_csv(csv) {
+    let index_value, index_mirror, index_url;
+    let result = [];
+
+    for (const line of csv.split('\r\n')) {
+        const arr = line.split(',');
+        if (arr.length < 7)
+            continue
+        if (arr[1] === "result") {
+            for (let i = 3; i != 7; ++i) {
+                switch(arr[i]) {
+                    case "_value":
+                        index_value = i;
+                        break;
+                    case "mirror":
+                        index_mirror = i;
+                        break;
+                    case "url":
+                        index_url = i;
+                        break;
+                }
+            }
+        } else if (arr[1] === "_result") {
+            result.push({
+                "value": arr[index_value],
+                "url": arr[index_url],
+                "mirror": arr[index_mirror],
+            });
+        }
+    }
+    return result;
 }
 
 async function handler(request) {
@@ -78,6 +106,7 @@ async function handler(request) {
         response = await fetch(INFLUX_URL, {
             headers: {
                 'Authorization': INFLUX_TOKEN,
+                'Accept': 'application/csv',
                 'Content-Type': 'application/vnd.flux',
             },
             method: "POST",
@@ -85,10 +114,11 @@ async function handler(request) {
         });
 
         const csv = await response.text();
+        const parsed = parse_csv(csv);
         if (is_debug(request))
-            return new Response(csv);
+            return new Response(JSON.stringify(parsed, null, 2));
 
-        const url = decide(csv);
+        const url = decide(parsed);
 
         if (url === null)
             return new Response(`Not Found`, {status: 404});
