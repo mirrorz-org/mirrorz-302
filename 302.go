@@ -745,8 +745,7 @@ func ResolvedTicker() {
 	ticker := time.NewTicker(time.Second * time.Duration(config.CacheTime))
 
 	go func() {
-		for {
-			t := <-ticker.C
+		for t := range ticker.C {
 			cur := t.Unix()
 			cacheGCLogger.Infof("Resolved GC starts\n")
 			resolved.Range(func(k interface{}, v interface{}) bool {

@@ -12,12 +12,16 @@ import (
 	"github.com/juju/loggo"
 
 	"encoding/json"
-	"io/ioutil"
 
 	"flag"
 )
 
 var logger = loggo.GetLogger("ipasn")
+
+type Provider struct {
+	root4 CIDRTrieNode
+	root6 CIDRTrieNode
+}
 
 type CIDRTrieNode struct {
 	value string
@@ -25,16 +29,13 @@ type CIDRTrieNode struct {
 	one   *CIDRTrieNode
 }
 
-var IPv4Trie CIDRTrieNode
-var IPv6Trie CIDRTrieNode
-
-func GetBit(ip net.IP, sth int) int {
-	i := sth / 8
-	j := sth % 8
+func GetBit(ip net.IP, index int) int {
+	i := index / 8
+	j := index % 8
 	return int((ip[i] & (1 << (7 - j))) >> (7 - j))
 }
 
-func Put(cidr string, value string) {
+func (p *Provider) Put(cidr string, value string) {
 	ipaddr, ipnet, err := net.ParseCIDR(cidr)
 	if err != nil {
 		logger.Errorf("CIDR parse error: %s\n", cidr)
@@ -45,10 +46,10 @@ func Put(cidr string, value string) {
 
 	var root *CIDRTrieNode
 	if ipaddr.To4() != nil { // IPv4
-		root = &IPv4Trie
+		root = &p.root4
 		ipaddr = ipaddr.To4()
 	} else if ipaddr.To16() != nil { // IPv6
-		root = &IPv6Trie
+		root = &p.root6
 		ipaddr = ipaddr.To16()
 	}
 	for depth := 0; depth < ipmask; depth++ {
@@ -67,7 +68,7 @@ func Put(cidr string, value string) {
 	root.value = value
 }
 
-func Get(ip string) (value string) {
+func (p *Provider) Get(ip string) (value string) {
 	ipaddr := net.ParseIP(ip)
 	logger.Debugf("IP: %s\n", ip)
 	if ipaddr == nil {
@@ -77,10 +78,10 @@ func Get(ip string) (value string) {
 
 	var root *CIDRTrieNode
 	if ipaddr.To4() != nil { // IPv4
-		root = &IPv4Trie
+		root = &p.root4
 		ipaddr = ipaddr.To4()
 	} else if ipaddr.To16() != nil { // IPv6
-		root = &IPv6Trie
+		root = &p.root6
 		ipaddr = ipaddr.To16()
 	}
 	logger.Debugf("IPLen: %d\n", len(ipaddr))
@@ -104,8 +105,8 @@ func Get(ip string) (value string) {
 	return
 }
 
-func LoadASNDatabase() {
-	file, err := os.Open(config.ASNDatabase)
+func (p *Provider) Load(filename string) {
+	file, err := os.Open(filename)
 	if err != nil {
 		logger.Errorf("%v", err)
 	}
@@ -114,16 +115,21 @@ func LoadASNDatabase() {
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
-		array := strings.SplitN(scanner.Text(), " ", 2)
-		Put(array[0], array[1])
+		array := strings.Fields(scanner.Text())
+		p.Put(array[0], array[1])
 	}
-	logger.Debugf("DB4: %t %t\n", IPv4Trie.one == nil, IPv4Trie.zero == nil)
-	logger.Debugf("DB6: %t %t\n", IPv6Trie.one == nil, IPv6Trie.zero == nil)
+	logger.Debugf("DB4: %t %t\n", p.root4.one == nil, p.root4.zero == nil)
+	logger.Debugf("DB6: %t %t\n", p.root6.one == nil, p.root6.zero == nil)
 }
 
-func Handler(w http.ResponseWriter, r *http.Request) {
+func (p *Provider) Reset() {
+	p.root4 = CIDRTrieNode{}
+	p.root6 = CIDRTrieNode{}
+}
+
+func (p *Provider) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	arg := r.URL.Path[1:]
-	fmt.Fprintf(w, "%s", Get(arg))
+	fmt.Fprintf(w, "%s", p.Get(arg))
 }
 
 type Config struct {
@@ -140,7 +146,7 @@ func LoadConfig(path string, debug bool) (err error) {
 		loggo.ConfigureLoggers("ipasn=INFO")
 	}
 
-	file, err := ioutil.ReadFile(path)
+	file, err := os.ReadFile(path)
 	if err != nil {
 		logger.Errorf("LoadConfig ReadFile failed: %v\n", err)
 		return
@@ -168,10 +174,11 @@ func main() {
 	flag.Parse()
 	LoadConfig(*configPtr, *debugPtr)
 
-	LoadASNDatabase()
+	p := new(Provider)
+	p.Load(config.ASNDatabase)
 
 	logger.Infof("Finish reading ASN database")
 
-	http.HandleFunc("/", Handler)
+	http.Handle("/", p)
 	logger.Errorf("HTTP Server error: %v\n", http.ListenAndServe(config.HTTPBindAddress, nil))
 }
