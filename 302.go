@@ -336,6 +336,7 @@ func (s *MirrorZ302Server) StartResolvedTicker() {
 }
 
 func main() {
+	//lint:ignore SA1019 we don't care
 	rand.Seed(time.Now().Unix())
 
 	configPtr := flag.String("config", "config.json", "path to config file")
