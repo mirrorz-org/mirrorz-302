@@ -10,14 +10,6 @@ import (
 )
 
 type Endpoint struct {
-	Label   string   `json:"label"`
-	Resolve string   `json:"resolve"`
-	Public  bool     `json:"public"`
-	Filter  []string `json:"filter"`
-	Range   []string `json:"range"`
-}
-
-type EndpointInternal struct {
 	Label   string
 	Resolve string
 	Public  bool
@@ -34,7 +26,62 @@ type EndpointInternal struct {
 	RangeCIDR []*net.IPNet
 }
 
-func (e *EndpointInternal) Match(m RequestMeta) (reason string, ok bool) {
+// endpointJSON is used to parse Endpoint from JSON.
+type endpointJSON struct {
+	Label   string   `json:"label"`
+	Resolve string   `json:"resolve"`
+	Public  bool     `json:"public"`
+	Filter  []string `json:"filter"`
+	Range   []string `json:"range"`
+}
+
+func (e *Endpoint) UnmarshalJSON(data []byte) error {
+	var j endpointJSON
+	if err := json.Unmarshal(data, &j); err != nil {
+		return err
+	}
+
+	label := strings.ReplaceAll(j.Label, "-", "")
+	e.Label = label
+	e.Resolve = j.Resolve
+	e.Public = j.Public
+	// Filter
+	for _, d := range j.Filter {
+		switch d {
+		case "V4":
+			e.Filter.V4 = true
+		case "V6":
+			e.Filter.V6 = true
+		case "NOSSL":
+			e.Filter.NOSSL = true
+		case "SSL":
+			e.Filter.SSL = true
+		default:
+			// TODO: more structured
+			e.Filter.SPECIAL = append(e.Filter.SPECIAL, d)
+		}
+	}
+	if e.Filter.V4 && !e.Filter.V6 {
+		e.Filter.V4Only = true
+	}
+	if !e.Filter.V4 && e.Filter.V6 {
+		e.Filter.V6Only = true
+	}
+	// Range
+	for _, d := range j.Range {
+		if strings.HasPrefix(d, "AS") {
+			e.RangeASN = append(e.RangeASN, d[2:])
+		} else {
+			_, ipnet, _ := net.ParseCIDR(d)
+			if ipnet != nil {
+				e.RangeCIDR = append(e.RangeCIDR, ipnet)
+			}
+		}
+	}
+	return nil
+}
+
+func (e *Endpoint) Match(m RequestMeta) (reason string, ok bool) {
 	remoteIPv4 := m.IP.To4() != nil
 
 	if remoteIPv4 && !e.Filter.V4 {
@@ -56,7 +103,7 @@ func (e *EndpointInternal) Match(m RequestMeta) (reason string, ok bool) {
 	return "OK", true
 }
 
-func (e *EndpointInternal) Score(m RequestMeta) (score Score) {
+func (e *Endpoint) Score(m RequestMeta) (score Score) {
 	for index, label := range m.Labels {
 		if label == e.Label {
 			score.pos = index + 1
@@ -97,47 +144,6 @@ var LabelToResolve sync.Map
 // map[string][]EndpointInternal
 var AbbrToEndpoints sync.Map
 
-func ProcessEndpoint(e Endpoint) (i EndpointInternal) {
-	Label := strings.ReplaceAll(e.Label, "-", "")
-	LabelToResolve.Store(Label, e.Resolve)
-	i.Label = Label
-	i.Resolve = e.Resolve
-	i.Public = e.Public
-	// Filter
-	for _, d := range e.Filter {
-		if d == "V4" {
-			i.Filter.V4 = true
-		} else if d == "V6" {
-			i.Filter.V6 = true
-		} else if d == "NOSSL" {
-			i.Filter.NOSSL = true
-		} else if d == "SSL" {
-			i.Filter.SSL = true
-		} else {
-			// TODO: more structured
-			i.Filter.SPECIAL = append(i.Filter.SPECIAL, d)
-		}
-	}
-	if i.Filter.V4 && !i.Filter.V6 {
-		i.Filter.V4Only = true
-	}
-	if !i.Filter.V4 && i.Filter.V6 {
-		i.Filter.V6Only = true
-	}
-	// Range
-	for _, d := range e.Range {
-		if strings.HasPrefix(d, "AS") {
-			i.RangeASN = append(i.RangeASN, d[2:])
-		} else {
-			_, ipnet, _ := net.ParseCIDR(d)
-			if ipnet != nil {
-				i.RangeCIDR = append(i.RangeCIDR, ipnet)
-			}
-		}
-	}
-	return
-}
-
 func LoadMirrorZD(path string) (err error) {
 	files, err := os.ReadDir(path)
 	if err != nil {
@@ -159,11 +165,11 @@ func LoadMirrorZD(path string) (err error) {
 			continue
 		}
 		logger.Infof("%+v\n", data)
-		endpointsInternal := make([]EndpointInternal, 0, len(data.Endpoints))
+
 		for _, e := range data.Endpoints {
-			endpointsInternal = append(endpointsInternal, ProcessEndpoint(e))
+			LabelToResolve.Store(e.Label, e.Resolve)
 		}
-		AbbrToEndpoints.Store(data.Site.Abbr, endpointsInternal)
+		AbbrToEndpoints.Store(data.Site.Abbr, data.Endpoints)
 	}
 	LabelToResolve.Range(func(label interface{}, resolve interface{}) bool {
 		logger.Infof("%s -> %s\n", label, resolve)
@@ -172,11 +178,11 @@ func LoadMirrorZD(path string) (err error) {
 	return
 }
 
-func LookupMirrorZD(abbr string) (endpoints []EndpointInternal, ok bool) {
+func LookupMirrorZD(abbr string) (endpoints []Endpoint, ok bool) {
 	ep, ok := AbbrToEndpoints.Load(abbr)
 	if !ok {
 		return
 	}
-	endpoints, ok = ep.([]EndpointInternal)
+	endpoints, ok = ep.([]Endpoint)
 	return
 }
