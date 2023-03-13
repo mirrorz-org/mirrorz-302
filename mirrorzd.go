@@ -147,7 +147,7 @@ var AbbrToEndpoints sync.Map
 func LoadMirrorZD(path string) (err error) {
 	files, err := os.ReadDir(path)
 	if err != nil {
-		logger.Errorf("LoadMirrorZD: can not open mirrorz.d directory, %v\n", err)
+		logger.Errorf("LoadMirrorZD: cannot open mirrorz.d directory: %v\n", err)
 		return
 	}
 	for _, file := range files {
@@ -161,7 +161,7 @@ func LoadMirrorZD(path string) (err error) {
 		}
 		var data MirrorZD
 		if err := json.Unmarshal(content, &data); err != nil {
-			logger.Errorf("LoadMirrorZD: json.Unmarshal %s error: %v\n", file.Name(), err)
+			logger.Errorf("LoadMirrorZD: Parse %s error: %v\n", file.Name(), err)
 			continue
 		}
 		logger.Infof("%+v\n", data)
