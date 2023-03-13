@@ -16,7 +16,7 @@ var TracerKey = tracerKey{}
 type Tracer interface {
 	io.WriterTo
 	fmt.Stringer
-	Tracef(format string, args ...any)
+	Printf(format string, args ...any)
 }
 
 type bufTracer struct {
@@ -31,7 +31,7 @@ func NewTracer(enable bool) Tracer {
 }
 
 // Tracef implements the Tracer interface.
-func (t *bufTracer) Tracef(format string, args ...any) {
+func (t *bufTracer) Printf(format string, args ...any) {
 	fmt.Fprintf(&t.b, format, args...)
 }
 
@@ -49,7 +49,7 @@ func (t *bufTracer) WriteTo(w io.Writer) (n int64, err error) {
 type nopTracer struct{}
 
 // Tracef implements the Tracer interface.
-func (t *nopTracer) Tracef(format string, args ...any) {}
+func (t *nopTracer) Printf(format string, args ...any) {}
 
 // String implements the fmt.Stringer interface.
 func (t *nopTracer) String() string {

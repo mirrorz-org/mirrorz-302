@@ -114,10 +114,10 @@ func LoadConfig(path string, debug bool) (config Config, err error) {
 func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, err error) {
 	ctx := r.Context()
 	tracer := ctx.Value(TracerKey).(Tracer)
-	traceFunc := tracer.Tracef
+	traceFunc := tracer.Printf
 
 	meta := ParseRequestMeta(r)
-	traceFunc("labels: %v\n", meta.Labels)
+	traceFunc("Labels: %v\n", meta.Labels)
 	traceFunc("IP: %v\n", meta.IP)
 	traceFunc("ASN: %s\n", meta.ASN)
 	traceFunc("Scheme: %s\n", meta.Scheme)
@@ -197,7 +197,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 func ResolveBest(ctx context.Context, res *api.QueryTableResult,
 	meta RequestMeta) (chosenScore Score) {
 	tracer := ctx.Value(TracerKey).(Tracer)
-	traceFunc := tracer.Tracef
+	traceFunc := tracer.Printf
 
 	var scores Scores
 
@@ -299,7 +299,7 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult,
 func ResolveExist(ctx context.Context, res *api.QueryTableResult,
 	oldResolve string) (resolve string, repo string) {
 	tracer := ctx.Value(TracerKey).(Tracer)
-	traceFunc := tracer.Tracef
+	traceFunc := tracer.Printf
 
 outerLoop:
 	for res.Next() {
