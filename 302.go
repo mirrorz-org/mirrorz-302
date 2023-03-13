@@ -150,20 +150,15 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 		scheme,
 		strings.Join(labels, "-"),
 	}, "+")
-	keyResolved, ok := s.resolved.Load(key)
+	keyResolved, cacheHit := s.resolved.Load(key)
 
 	// all valid, use cached result
 	cur := time.Now().Unix()
-	if ok && cur-keyResolved.last < config.CacheTime &&
+	if cacheHit && cur-keyResolved.last < config.CacheTime &&
 		cur-keyResolved.start < config.CacheTime {
-		url = keyResolved.url
 		// update timestamp
-		s.resolved.Store(key, Resolved{
-			start:   keyResolved.start,
-			last:    cur,
-			url:     url,
-			resolve: keyResolved.resolve,
-		})
+		keyResolved.last = cur
+		s.resolved.Store(key, keyResolved)
 		logFunc(url, Score{}, "C") // C for cache
 		return
 	}
@@ -177,7 +172,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	var resolve string
 	var repo string
 
-	if ok && cur-keyResolved.last < config.CacheTime &&
+	if cacheHit && cur-keyResolved.last < config.CacheTime &&
 		cur-keyResolved.start >= config.CacheTime {
 		resolve, repo = ResolveExist(ctx, res, keyResolved.resolve)
 	}

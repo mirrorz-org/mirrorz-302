@@ -41,8 +41,6 @@ func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// [1:] for no heading `/`
 	pathArr := strings.SplitN(r.URL.Path[1:], "/", 2)
 
-	cname := ""
-	tail := ""
 	if r.URL.Path == "/" {
 		labels := Host(r)
 		scheme := Scheme(r)
@@ -56,7 +54,9 @@ func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, config.Homepage), http.StatusFound)
 		return
 	}
-	cname = pathArr[0]
+
+	cname := pathArr[0]
+	tail := ""
 	if len(pathArr) == 2 {
 		tail = "/" + pathArr[1]
 	}
