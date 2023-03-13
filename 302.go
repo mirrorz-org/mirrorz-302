@@ -130,8 +130,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 		if url != "" {
 			// record detail in resolve log
 			s.resolveLogger.Debugf(tracer.String())
-			scoreLog := fmt.Sprintf("%d %d %d %d", score.pos, score.mask, score.as, score.delta)
-			resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s\n", char, url, remoteIP, asn, labels, scoreLog)
+			resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s\n", char, url, remoteIP, asn, labels, score.LogString())
 			s.resolveLogger.Infof(resolvedLog)
 			traceFunc(resolvedLog)
 		} else {
@@ -328,7 +327,7 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult,
 					candidateScores = optimalScores
 				}
 				// randomly choose one mirror from the optimal half
-				// when len(optimalScores) == 1, randomHalf always success
+				// when len(optimalScores) == 1, randomHalf always succeeds
 				sort.Sort(candidateScores)
 				chosenScore = candidateScores.RandomHalf()
 				for index, score := range candidateScores {
@@ -353,8 +352,7 @@ func ResolveExist(ctx context.Context, res *api.QueryTableResult,
 	tracer := ctx.Value(TracerKey).(Tracer)
 	traceFunc := tracer.Tracef
 
-	found := false
-
+outerLoop:
 	for res.Next() {
 		record := res.Record()
 		abbr := record.ValueByKey("mirror").(string)
@@ -369,15 +367,9 @@ func ResolveExist(ctx context.Context, res *api.QueryTableResult,
 			if oldResolve == endpoint.Resolve {
 				resolve = endpoint.Resolve
 				repo = record.ValueByKey("path").(string)
-				found = true
 				traceFunc("exist\n")
+				break outerLoop
 			}
-			if found {
-				break
-			}
-		}
-		if found {
-			break
 		}
 	}
 	return
@@ -410,7 +402,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	server := NewMirrorZ302Server()
+	server := NewMirrorZ302Server(config)
 
 	// Logfile (or its directory) must be unprivilegd
 	err = server.InitLoggers()

@@ -1,11 +1,14 @@
 package main
 
-import "math/rand"
+import (
+	"fmt"
+	"math/rand"
+)
 
 type Score struct {
-	pos   int // pos of label, bigger the better
-	mask  int // maximum mask
-	as    int // is in
+	pos   int // pos of label, bigger = better
+	mask  int // longest mask
+	as    int // is in AS
 	delta int // often negative
 
 	// payload
@@ -22,11 +25,7 @@ func (l Score) Less(r Score) bool {
 		return r.mask-l.mask < 0
 	}
 	if l.as != r.as {
-		if l.as == 1 {
-			return true
-		} else {
-			return false
-		}
+		return l.as == 1
 	}
 	if l.delta == 0 {
 		return false
@@ -71,9 +70,15 @@ func (l Score) EqualExceptDelta(r Score) bool {
 	return l.pos == r.pos && l.mask == r.mask && l.as == r.as
 }
 
+func (l Score) LogString() string {
+	return fmt.Sprintf("%d %d %d %d", l.pos, l.mask, l.as, l.delta)
+}
+
 type Scores []Score
 
-func (s Scores) Len() int { return len(s) }
+func (s Scores) Len() int {
+	return len(s)
+}
 
 func (s Scores) Less(l, r int) bool {
 	return s[l].Less(s[r])
@@ -111,41 +116,36 @@ func (scores Scores) Optimals() (optimalScores Scores) {
 	return
 }
 
-func (scores Scores) AllDelta() (allDelta bool) {
-	allDelta = true
+func (scores Scores) AllDelta() bool {
 	for _, s := range scores {
 		if !s.DeltaOnly() {
-			allDelta = false
+			return false
 		}
 	}
-	return
+	return true
 }
 
-func (scores Scores) AllEqualExceptDelta() (allEqualExceptDelta bool) {
-	allEqualExceptDelta = true
+func (scores Scores) AllEqualExceptDelta() bool {
 	if len(scores) == 0 {
-		return
+		return true
 	}
 	for _, l := range scores {
 		if !l.EqualExceptDelta(scores[0]) { // [0] valid ensured by previous if
-			allEqualExceptDelta = false
+			return false
 		}
 	}
-	return
+	return true
 }
 
-func (scores Scores) RandomRange(r int) (score Score) {
+func (scores Scores) RandomRange(r int) Score {
 	i := rand.Intn(r)
-	score = scores[i]
-	return
+	return scores[i]
 }
 
-func (scores Scores) RandomHalf() (score Score) {
-	score = scores.RandomRange((len(scores) + 1) / 2)
-	return
+func (scores Scores) RandomHalf() Score {
+	return scores.RandomRange((len(scores) + 1) / 2)
 }
 
-func (scores Scores) Random() (score Score) {
-	score = scores.RandomRange(len(scores))
-	return
+func (scores Scores) Random() Score {
+	return scores.RandomRange(len(scores))
 }

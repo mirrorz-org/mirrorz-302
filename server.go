@@ -17,9 +17,9 @@ type MirrorZ302Server struct {
 	resolved *ResolveCache
 }
 
-func NewMirrorZ302Server() *MirrorZ302Server {
+func NewMirrorZ302Server(config Config) *MirrorZ302Server {
 	s := &MirrorZ302Server{}
-	s.resolved = NewResolveCache(0)
+	s.resolved = NewResolveCache(config.CacheTime)
 	return s
 }
 
