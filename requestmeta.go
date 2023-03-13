@@ -74,3 +74,13 @@ func Host(r *http.Request) (labels []string) {
 	labels = strings.Split(dots[0], "-")
 	return
 }
+
+func CacheKey(meta RequestMeta, cname string) string {
+	return strings.Join([]string{
+		meta.IP.String(),
+		cname,
+		meta.ASN,
+		meta.Scheme,
+		strings.Join(meta.Labels, "-"),
+	}, "+")
+}

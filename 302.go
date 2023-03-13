@@ -141,13 +141,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	}
 
 	// check if already resolved / cached
-	key := strings.Join([]string{
-		meta.IP.String(),
-		cname,
-		meta.ASN,
-		meta.Scheme,
-		strings.Join(meta.Labels, "-"),
-	}, "+")
+	key := CacheKey(meta, cname)
 	keyResolved, cacheHit := s.resolved.Load(key)
 
 	// all valid, use cached result
@@ -206,7 +200,6 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult,
 	traceFunc := tracer.Tracef
 
 	var scores Scores
-	remoteIPv4 := meta.IP.To4() != nil
 
 	for res.Next() {
 		record := res.Record()
@@ -219,52 +212,12 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult,
 		var scoresEndpoints Scores
 		for _, endpoint := range endpoints {
 			traceFunc("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
-			if remoteIPv4 && !endpoint.Filter.V4 {
-				traceFunc("    not v4 endpoint\n")
+			if reason, ok := endpoint.Match(meta); !ok {
+				traceFunc("    %s\n", reason)
 				continue
 			}
-			if !remoteIPv4 && !endpoint.Filter.V6 {
-				traceFunc("    not v6 endpoint\n")
-				continue
-			}
-			if meta.Scheme == "http" && !endpoint.Filter.NOSSL {
-				traceFunc("    not nossl endpoint\n")
-				continue
-			}
-			if meta.Scheme == "https" && !endpoint.Filter.SSL {
-				traceFunc("    not ssl endpoint\n")
-				continue
-			}
-			if meta.V4Only() && !endpoint.Filter.V4Only {
-				traceFunc("    label v4only but endpoint not v4only\n")
-				continue
-			}
-			if meta.V6Only() && !endpoint.Filter.V6Only {
-				traceFunc("    label v6only but endpoint not v6only\n")
-				continue
-			}
-			score := Score{pos: 0, as: 0, mask: 0, delta: 0}
+			score := endpoint.Score(meta)
 			score.delta = int(record.Value().(int64))
-			for index, label := range meta.Labels {
-				if label == endpoint.Label {
-					score.pos = index + 1
-				}
-			}
-			for _, endpointASN := range endpoint.RangeASN {
-				if endpointASN == meta.ASN {
-					score.as = 1
-				}
-			}
-			for _, ipnet := range endpoint.RangeCIDR {
-				if meta.IP != nil && ipnet.Contains(meta.IP) {
-					mask, _ := ipnet.Mask.Size()
-					if mask > score.mask {
-						score.mask = mask
-					}
-				}
-			}
-
-			score.resolve = endpoint.Resolve
 			score.repo = record.ValueByKey("path").(string)
 			traceFunc("    score: %v\n", score)
 
@@ -279,65 +232,67 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult,
 			scoresEndpoints = append(scoresEndpoints, score)
 		}
 
+		if len(scoresEndpoints) == 0 {
+			traceFunc("  no score found\n")
+			continue
+		}
+
 		// Find the not-dominated scores, or the first one
-		if len(scoresEndpoints) > 0 {
-			optimalScores := scoresEndpoints.OptimalsExceptDelta() // Delta all the same
-			if len(optimalScores) > 0 && len(optimalScores) != len(scoresEndpoints) {
-				for index, score := range optimalScores {
-					traceFunc("  optimal scores: %d %v\n", index, score)
-					scores = append(scores, score)
-				}
-			} else {
-				traceFunc("  first score: %v\n", scoresEndpoints[0])
-				scores = append(scores, scoresEndpoints[0])
+		optimalScores := scoresEndpoints.OptimalsExceptDelta() // Delta all the same
+		if len(optimalScores) > 0 && len(optimalScores) != len(scoresEndpoints) {
+			for index, score := range optimalScores {
+				traceFunc("  optimal scores: %d %v\n", index, score)
+				scores = append(scores, score)
 			}
 		} else {
-			traceFunc("  no score found\n")
+			traceFunc("  first score: %v\n", scoresEndpoints[0])
+			scores = append(scores, scoresEndpoints[0])
 		}
 	}
 	if err := res.Err(); err != nil {
 		logger.Errorf("Resolve query parsing error: %v\n", err)
 		return
 	}
+	if len(scores) == 0 {
+		return
+	}
 
-	if len(scores) > 0 {
-		for index, score := range scores {
-			traceFunc("scores: %d %v\n", index, score)
-		}
-		optimalScores := scores.Optimals()
-		if len(optimalScores) == 0 {
-			logger.Warningf("Resolve optimal scores empty, algorithm implemented error")
-			chosenScore = scores[0]
+	for index, score := range scores {
+		traceFunc("scores: %d %v\n", index, score)
+	}
+	optimalScores := scores.Optimals()
+	if len(optimalScores) == 0 {
+		logger.Warningf("Resolve optimal scores empty, algorithm implemented wrong\n")
+		chosenScore = scores[0]
+		return
+	}
+
+	allDelta := scores.AllDelta()
+	allEqualExceptDelta := optimalScores.AllEqualExceptDelta()
+	if allEqualExceptDelta || allDelta {
+		var candidateScores Scores
+		if allDelta {
+			// Note: allDelta == true implies allEqualExceptDelta == true
+			candidateScores = scores
 		} else {
-			allDelta := scores.AllDelta()
-			allEqualExceptDelta := optimalScores.AllEqualExceptDelta()
-			if allEqualExceptDelta || allDelta {
-				var candidateScores Scores
-				if allDelta {
-					// Note: allDelta == true implies allEqualExceptDelta == true
-					candidateScores = scores
-				} else {
-					candidateScores = optimalScores
-				}
-				// randomly choose one mirror from the optimal half
-				// when len(optimalScores) == 1, randomHalf always succeeds
-				sort.Sort(candidateScores)
-				chosenScore = candidateScores.RandomHalf()
-				for index, score := range candidateScores {
-					traceFunc("sorted delta scores: %d %v\n", index, score)
-				}
-			} else {
-				sort.Sort(optimalScores)
-				chosenScore = optimalScores[0]
-				// randomly choose one mirror not dominated by others
-				//chosenScore = optimalScores.Random()
-				for index, score := range optimalScores {
-					traceFunc("optimal scores: %d %v\n", index, score)
-				}
-			}
+			candidateScores = optimalScores
+		}
+		// randomly choose one mirror from the optimal half
+		// when len(optimalScores) == 1, randomHalf always succeeds
+		sort.Sort(candidateScores)
+		chosenScore = candidateScores.RandomHalf()
+		for index, score := range candidateScores {
+			traceFunc("sorted delta scores: %d %v\n", index, score)
+		}
+	} else {
+		sort.Sort(optimalScores)
+		chosenScore = optimalScores[0]
+		// randomly choose one mirror not dominated by others
+		//chosenScore = optimalScores.Random()
+		for index, score := range optimalScores {
+			traceFunc("optimal scores: %d %v\n", index, score)
 		}
 	}
-	return
 }
 
 func ResolveExist(ctx context.Context, res *api.QueryTableResult,
@@ -368,18 +323,15 @@ outerLoop:
 	return
 }
 
-func (s *MirrorZ302Server) ResolvedTicker(c <-chan time.Time) {
+func (s *MirrorZ302Server) resolvedTicker(c <-chan time.Time) {
 	for t := range c {
-		s.cacheGCLogger.Infof("Resolved GC starts\n")
 		s.resolved.GC(t, &s.cacheGCLogger)
-		s.cacheGCLogger.Infof("Resolved GC finished\n")
 	}
 }
 func (s *MirrorZ302Server) StartResolvedTicker() {
-	s.ResolvedInit()
 	// GC on resolved
 	ticker := time.NewTicker(time.Second * time.Duration(config.CacheTime))
-	go s.ResolvedTicker(ticker.C)
+	go s.resolvedTicker(ticker.C)
 }
 
 func main() {
@@ -405,6 +357,7 @@ func main() {
 	}
 
 	OpenInfluxDB()
+	defer CloseInfluxDB()
 
 	LoadMirrorZD(config.MirrorZDDirectory)
 
@@ -436,6 +389,4 @@ func main() {
 
 	http.Handle("/", server)
 	logger.Errorf("HTTP Server error: %v\n", http.ListenAndServe(config.HTTPBindAddress, nil))
-
-	CloseInfluxDB()
 }

@@ -37,21 +37,22 @@ func (c *ResolveCache) Store(key string, v Resolved) {
 
 func (c *ResolveCache) GC(t time.Time, logger *Logger) {
 	cur := t.Unix()
+	logger.Infof("Resolved GC start at %s\n", t)
 	c.Map.Range(func(k interface{}, v interface{}) bool {
 		r, ok := v.(Resolved)
 		if !ok {
 			c.Map.Delete(k)
 			return true
 		}
-		if cur-r.start >= config.CacheTime &&
-			cur-r.last >= config.CacheTime {
+		if cur-r.start >= c.ttl && cur-r.last >= c.ttl {
 			c.Map.Delete(k)
-			logger.Infof("Resolved GC %s %s\n", k, r.url)
+			logger.Infof("Resolved GC %s: %s\n", k, r.url)
 		}
 		return true
 	})
+	logger.Infof("Resolved GC done at %s\n\n", time.Now())
 }
 
-func (s *MirrorZ302Server) ResolvedInit() {
+func (s *MirrorZ302Server) Reset() {
 	s.resolved.Map = sync.Map{}
 }

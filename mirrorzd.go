@@ -34,6 +34,53 @@ type EndpointInternal struct {
 	RangeCIDR []*net.IPNet
 }
 
+func (e *EndpointInternal) Match(m RequestMeta) (reason string, ok bool) {
+	remoteIPv4 := m.IP.To4() != nil
+
+	if remoteIPv4 && !e.Filter.V4 {
+		return "not v4 endpoint", false
+	} else if !remoteIPv4 && !e.Filter.V6 {
+		return "not v6 endpoint", false
+	} else if m.Scheme == "http" && !e.Filter.NOSSL {
+		return "not nossl endpoint", false
+	}
+	if m.Scheme == "https" && !e.Filter.SSL {
+		return "not ssl endpoint", false
+	}
+	if m.V4Only() && !e.Filter.V4Only {
+		return "label v4only but endpoint not v4only", false
+	}
+	if m.V6Only() && !e.Filter.V6Only {
+		return "label v6only but endpoint not v6only", false
+	}
+	return "OK", true
+}
+
+func (e *EndpointInternal) Score(m RequestMeta) (score Score) {
+	for index, label := range m.Labels {
+		if label == e.Label {
+			score.pos = index + 1
+			break
+		}
+	}
+	for _, endpointASN := range e.RangeASN {
+		if endpointASN == m.ASN {
+			score.as = 1
+			break
+		}
+	}
+	for _, ipnet := range e.RangeCIDR {
+		if m.IP != nil && ipnet.Contains(m.IP) {
+			mask, _ := ipnet.Mask.Size()
+			if mask > score.mask {
+				score.mask = mask
+			}
+		}
+	}
+	score.resolve = e.Resolve
+	return
+}
+
 type Site struct {
 	Abbr string `json:"abbr"`
 }
@@ -107,13 +154,12 @@ func LoadMirrorZD(path string) (err error) {
 			continue
 		}
 		var data MirrorZD
-		err = json.Unmarshal(content, &data)
-		if err != nil {
-			logger.Errorf("LoadMirrorZD: process %s failed\n", file.Name())
+		if err := json.Unmarshal(content, &data); err != nil {
+			logger.Errorf("LoadMirrorZD: json.Unmarshal %s error: %v\n", file.Name(), err)
 			continue
 		}
 		logger.Infof("%+v\n", data)
-		var endpointsInternal []EndpointInternal
+		endpointsInternal := make([]EndpointInternal, 0, len(data.Endpoints))
 		for _, e := range data.Endpoints {
 			endpointsInternal = append(endpointsInternal, ProcessEndpoint(e))
 		}
