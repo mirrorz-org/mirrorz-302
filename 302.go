@@ -2,11 +2,9 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"net/http"
-	"path"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +15,6 @@ import (
 	"github.com/influxdata/influxdb-client-go/v2/api"
 
 	"encoding/json"
-	"path/filepath"
 
 	"flag"
 
@@ -44,72 +41,15 @@ type Config struct {
 	LogDirectory      string `json:"log-directory"`
 }
 
-type Logger struct {
-	loggo.Logger
-	f *os.File
-}
-
 var (
-	logger        = loggo.GetLogger("mirrorzd") // to stderr
-	resolveLogger Logger
-	failLogger    Logger
-	cacheGCLogger Logger
-	config        Config
+	logger = loggo.GetLogger("mirrorzd") // to stderr
+	config Config
 
 	client   influxdb2.Client
 	queryAPI api.QueryAPI
 )
 
-func LoggerFileFormatter(entry loggo.Entry) string {
-	ts := entry.Timestamp.In(time.UTC).Format("2006-01-02 15:04:05")
-	return fmt.Sprintf("%s %s", ts, entry.Message)
-}
-
-func (l *Logger) Open(filename string, level loggo.Level) (err error) {
-	context := loggo.NewContext(level)
-	logfile := path.Join(config.LogDirectory, filename)
-	f, err := os.OpenFile(logfile, os.O_CREATE|os.O_RDWR|os.O_APPEND, os.ModeAppend|0600)
-	if err != nil {
-		return
-	}
-	err = context.AddWriter("default", loggo.NewSimpleWriter(f, LoggerFileFormatter))
-	if err != nil {
-		return
-	}
-	l.Logger = context.GetLogger("default")
-	err = l.f.Close()
-	l.f = f
-	return
-}
-
-func (l *Logger) Close() (err error) {
-	if l.f != nil {
-		err = l.f.Close()
-		l.f = nil
-	}
-	return
-}
-
-func InitLoggers() (err error) {
-	// global resolveLogger
-	if err = resolveLogger.Open("resolve.log", loggo.INFO); err != nil {
-		return
-	}
-
-	// global failLogger
-	if err = failLogger.Open("fail.log", loggo.INFO); err != nil {
-		return
-	}
-
-	// global cacheGCLogger
-	if err = cacheGCLogger.Open("gc.log", loggo.INFO); err != nil {
-		return
-	}
-
-	return
-}
-
-func LoadConfig(path string, debug bool) (err error) {
+func LoadConfig(path string, debug bool) (config Config, err error) {
 	if debug {
 		loggo.ConfigureLoggers("mirrorzd=DEBUG")
 	} else {
@@ -178,244 +118,6 @@ func LoadConfig(path string, debug bool) (err error) {
 	return
 }
 
-// map[string][]EndpointInternal
-var AbbrToEndpoints sync.Map
-
-// map[string]string
-var LabelToResolve sync.Map
-
-func Handler(w http.ResponseWriter, r *http.Request) {
-	// [1:] for no heading `/`
-	pathArr := strings.SplitN(r.URL.Path[1:], "/", 2)
-
-	cname := ""
-	tail := ""
-	if r.URL.Path == "/" {
-		labels := Host(r)
-		scheme := Scheme(r)
-		if len(labels) != 0 {
-			resolve, ok := LabelToResolve.Load(labels[len(labels)-1])
-			if ok {
-				http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, resolve), http.StatusFound)
-				return
-			}
-		}
-		http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, config.Homepage), http.StatusFound)
-		return
-	} else {
-		cname = pathArr[0]
-		if len(pathArr) == 2 {
-			tail = "/" + pathArr[1]
-		}
-	}
-
-	_, trace := r.URL.Query()["trace"]
-
-	url, traceStr, err := Resolve(r, cname, trace)
-
-	if trace {
-		fmt.Fprintf(w, "%s", traceStr)
-	} else if url == "" || err != nil {
-		http.NotFound(w, r)
-	} else {
-		query := ""
-		if r.URL.RawQuery != "" {
-			query = "?" + r.URL.RawQuery
-		}
-		http.Redirect(w, r, fmt.Sprintf("%s%s%s", url, tail, query), http.StatusFound)
-	}
-}
-
-func Scheme(r *http.Request) (scheme string) {
-	scheme = r.Header.Get("X-Forwarded-Proto")
-	if scheme == "" {
-		scheme = "https"
-	}
-	return
-}
-
-func IP(r *http.Request) (ip net.IP) {
-	ip = net.ParseIP(r.Header.Get("X-Real-IP"))
-	return
-}
-
-func ASN(ip net.IP) (asn string) {
-	client := http.Client{
-		Timeout: 500 * time.Millisecond,
-	}
-	req := config.IPASNURL + "/" + ip.String()
-	resp, err := client.Get(req)
-	if err != nil {
-		logger.Errorf("IPASN HTTP Get failed: %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logger.Errorf("IPASN read body failed: %v\n", err)
-		return
-	}
-	asn = string(body)
-	return
-}
-
-func Host(r *http.Request) (labels []string) {
-	dots := strings.Split(r.Header.Get("X-Forwarded-Host"), ".")
-	if len(dots) != config.DomainLength {
-		return
-	}
-	labels = strings.Split(dots[0], "-")
-	return
-}
-
-type Score struct {
-	pos   int // pos of label, bigger the better
-	mask  int // maximum mask
-	as    int // is in
-	delta int // often negative
-
-	// payload
-	resolve string
-	repo    string
-}
-
-func (l Score) Less(r Score) bool {
-	// ret > 0 means r > l
-	if l.pos != r.pos {
-		return r.pos-l.pos < 0
-	}
-	if l.mask != r.mask {
-		return r.mask-l.mask < 0
-	}
-	if l.as != r.as {
-		if l.as == 1 {
-			return true
-		} else {
-			return false
-		}
-	}
-	if l.delta == 0 {
-		return false
-	} else if r.delta == 0 {
-		return true
-	} else if l.delta < 0 && r.delta > 0 {
-		return true
-	} else if r.delta < 0 && l.delta > 0 {
-		return false
-	} else if r.delta > 0 && l.delta > 0 {
-		return l.delta-r.delta <= 0
-	} else {
-		return r.delta-l.delta <= 0
-	}
-}
-
-func (l Score) DominateExceptDelta(r Score) bool {
-	rangeDominate := false
-	if l.mask > r.mask || (l.mask == r.mask && l.as >= r.as && r.as != 1) {
-		rangeDominate = true
-	}
-	return l.pos >= r.pos && rangeDominate
-}
-
-func (l Score) Dominate(r Score) bool {
-	deltaDominate := false
-	if l.delta == 0 && r.delta == 0 {
-		deltaDominate = true
-	} else if l.delta < 0 && r.delta < 0 && l.delta > r.delta {
-		deltaDominate = true
-	} else if l.delta > 0 && r.delta > 0 && l.delta < r.delta {
-		deltaDominate = true
-	}
-	return l.DominateExceptDelta(r) && deltaDominate
-}
-
-func (l Score) DeltaOnly() bool {
-	return l.pos == 0 && l.mask == 0 && l.as == 0
-}
-
-func (l Score) EqualExceptDelta(r Score) bool {
-	return l.pos == r.pos && l.mask == r.mask && l.as == r.as
-}
-
-type Scores []Score
-
-func (s Scores) Len() int { return len(s) }
-
-func (s Scores) Less(l, r int) bool {
-	return s[l].Less(s[r])
-}
-
-func (s Scores) Swap(l, r int) { s[l], s[r] = s[r], s[l] }
-
-func (scores Scores) OptimalsExceptDelta() (optimalScores Scores) {
-	for i, l := range scores {
-		dominated := false
-		for j, r := range scores {
-			if i != j && r.DominateExceptDelta(l) {
-				dominated = true
-			}
-		}
-		if !dominated {
-			optimalScores = append(optimalScores, l)
-		}
-	}
-	return
-}
-
-func (scores Scores) Optimals() (optimalScores Scores) {
-	for i, l := range scores {
-		dominated := false
-		for j, r := range scores {
-			if i != j && r.Dominate(l) {
-				dominated = true
-			}
-		}
-		if !dominated {
-			optimalScores = append(optimalScores, l)
-		}
-	}
-	return
-}
-
-func (scores Scores) AllDelta() (allDelta bool) {
-	allDelta = true
-	for _, s := range scores {
-		if !s.DeltaOnly() {
-			allDelta = false
-		}
-	}
-	return
-}
-
-func (scores Scores) AllEqualExceptDelta() (allEqualExceptDelta bool) {
-	allEqualExceptDelta = true
-	if len(scores) == 0 {
-		return
-	}
-	for _, l := range scores {
-		if !l.EqualExceptDelta(scores[0]) { // [0] valid ensured by previous if
-			allEqualExceptDelta = false
-		}
-	}
-	return
-}
-
-func (scores Scores) RandomRange(r int) (score Score) {
-	i := rand.Intn(r)
-	score = scores[i]
-	return
-}
-
-func (scores Scores) RandomHalf() (score Score) {
-	score = scores.RandomRange((len(scores) + 1) / 2)
-	return
-}
-
-func (scores Scores) Random() (score Score) {
-	score = scores.RandomRange(len(scores))
-	return
-}
-
 // IP, label to start, last timestamp, url
 type Resolved struct {
 	start   int64 // starting timestamp, namely still check db after some time
@@ -427,7 +129,7 @@ type Resolved struct {
 // map[string]Resolved
 var resolved sync.Map
 
-func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr string, err error) {
+func (s *MirrorZ302Server) Resolve(r *http.Request, cname string, trace bool) (url string, traceStr string, err error) {
 	traceBuilder := new(strings.Builder)
 	defer func() {
 		traceStr = traceBuilder.String()
@@ -450,16 +152,16 @@ func Resolve(r *http.Request, cname string, trace bool) (url string, traceStr st
 	logFunc := func(url string, score Score, char string) {
 		if url != "" {
 			// record detail in resolve log
-			resolveLogger.Debugf(traceStr)
+			s.resolveLogger.Debugf(traceStr)
 			scoreLog := fmt.Sprintf("%d %d %d %d", score.pos, score.mask, score.as, score.delta)
 			resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s\n", char, url, remoteIP, asn, labels, scoreLog)
-			resolveLogger.Infof(resolvedLog)
+			s.resolveLogger.Infof(resolvedLog)
 			traceFunc(resolvedLog)
 		} else {
 			// record detail in fail log
-			failLogger.Debugf(traceStr)
+			s.failLogger.Debugf(traceStr)
 			failLog := fmt.Sprintf("F: %s (%v, %s) %v\n", cname, remoteIP, asn, labels)
-			failLogger.Infof(failLog)
+			s.failLogger.Infof(failLog)
 			traceFunc(failLog)
 		}
 	}
@@ -732,149 +434,38 @@ func ResolveExist(res *api.QueryTableResult, traceBuilder *strings.Builder, trac
 	return
 }
 
-func ResolvedInit() {
+func (s *MirrorZ302Server) ResolvedInit() {
 	resolved.Range(func(k interface{}, v interface{}) bool {
 		resolved.Delete(k)
 		return true
 	})
 }
 
-func ResolvedTicker() {
-	ResolvedInit()
+func (s *MirrorZ302Server) ResolvedTicker(c <-chan time.Time) {
+	for t := range c {
+		cur := t.Unix()
+		s.cacheGCLogger.Infof("Resolved GC starts\n")
+		resolved.Range(func(k interface{}, v interface{}) bool {
+			r, ok := v.(Resolved)
+			if !ok {
+				resolved.Delete(k)
+				return true
+			}
+			if cur-r.start >= config.CacheTime &&
+				cur-r.last >= config.CacheTime {
+				resolved.Delete(k)
+				s.cacheGCLogger.Infof("Resolved GC %s %s\n", k, r.url)
+			}
+			return true
+		})
+		s.cacheGCLogger.Infof("Resolved GC finished\n")
+	}
+}
+func (s *MirrorZ302Server) StartResolvedTicker() {
+	s.ResolvedInit()
 	// GC on resolved
 	ticker := time.NewTicker(time.Second * time.Duration(config.CacheTime))
-
-	go func() {
-		for t := range ticker.C {
-			cur := t.Unix()
-			cacheGCLogger.Infof("Resolved GC starts\n")
-			resolved.Range(func(k interface{}, v interface{}) bool {
-				r, ok := v.(Resolved)
-				if !ok {
-					resolved.Delete(k)
-					return true
-				}
-				if cur-r.start >= config.CacheTime &&
-					cur-r.last >= config.CacheTime {
-					resolved.Delete(k)
-					cacheGCLogger.Infof("Resolved GC %s %s\n", k, r.url)
-				}
-				return true
-			})
-			cacheGCLogger.Infof("Resolved GC finished\n")
-		}
-	}()
-}
-
-type Endpoint struct {
-	Label   string   `json:"label"`
-	Resolve string   `json:"resolve"`
-	Public  bool     `json:"public"`
-	Filter  []string `json:"filter"`
-	Range   []string `json:"range"`
-}
-
-type EndpointInternal struct {
-	Label   string
-	Resolve string
-	Public  bool
-	Filter  struct {
-		V4      bool
-		V4Only  bool
-		V6      bool
-		V6Only  bool
-		SSL     bool
-		NOSSL   bool
-		SPECIAL []string
-	}
-	RangeASN  []string
-	RangeCIDR []*net.IPNet
-}
-
-type Site struct {
-	Abbr string `json:"abbr"`
-}
-
-type MirrorZD struct {
-	Extension string     `json:"extension"`
-	Endpoints []Endpoint `json:"endpoints"`
-	Site      Site       `json:"site"`
-}
-
-func ProcessEndpoint(e Endpoint) (i EndpointInternal) {
-	Label := strings.ReplaceAll(e.Label, "-", "")
-	LabelToResolve.Store(Label, e.Resolve)
-	i.Label = Label
-	i.Resolve = e.Resolve
-	i.Public = e.Public
-	// Filter
-	for _, d := range e.Filter {
-		if d == "V4" {
-			i.Filter.V4 = true
-		} else if d == "V6" {
-			i.Filter.V6 = true
-		} else if d == "NOSSL" {
-			i.Filter.NOSSL = true
-		} else if d == "SSL" {
-			i.Filter.SSL = true
-		} else {
-			// TODO: more structured
-			i.Filter.SPECIAL = append(i.Filter.SPECIAL, d)
-		}
-	}
-	if i.Filter.V4 && !i.Filter.V6 {
-		i.Filter.V4Only = true
-	}
-	if !i.Filter.V4 && i.Filter.V6 {
-		i.Filter.V6Only = true
-	}
-	// Range
-	for _, d := range e.Range {
-		if strings.HasPrefix(d, "AS") {
-			i.RangeASN = append(i.RangeASN, d[2:])
-		} else {
-			_, ipnet, _ := net.ParseCIDR(d)
-			if ipnet != nil {
-				i.RangeCIDR = append(i.RangeCIDR, ipnet)
-			}
-		}
-	}
-	return
-}
-
-func LoadMirrorZD(path string) (err error) {
-	files, err := os.ReadDir(path)
-	if err != nil {
-		logger.Errorf("LoadMirrorZD: can not open mirrorz.d directory, %v\n", err)
-		return
-	}
-	for _, file := range files {
-		if !strings.HasSuffix(file.Name(), ".json") {
-			continue
-		}
-		content, err := os.ReadFile(filepath.Join(path, file.Name()))
-		if err != nil {
-			logger.Errorf("LoadMirrorZD: read %s failed\n", file.Name())
-			continue
-		}
-		var data MirrorZD
-		err = json.Unmarshal([]byte(content), &data)
-		if err != nil {
-			logger.Errorf("LoadMirrorZD: process %s failed\n", file.Name())
-			continue
-		}
-		logger.Infof("%+v\n", data)
-		var endpointsInternal []EndpointInternal
-		for _, e := range data.Endpoints {
-			endpointsInternal = append(endpointsInternal, ProcessEndpoint(e))
-		}
-		AbbrToEndpoints.Store(data.Site.Abbr, endpointsInternal)
-	}
-	LabelToResolve.Range(func(label interface{}, resolve interface{}) bool {
-		logger.Infof("%s -> %s\n", label, resolve)
-		return true
-	})
-	return
+	go s.ResolvedTicker(ticker.C)
 }
 
 func OpenInfluxDB() {
@@ -893,14 +484,16 @@ func main() {
 	debugPtr := flag.Bool("debug", false, "debug mode")
 	flag.Parse()
 
-	err := LoadConfig(*configPtr, *debugPtr)
+	server := NewMirrorZ302Server()
+
+	config, err := LoadConfig(*configPtr, *debugPtr)
 	if err != nil {
 		logger.Errorf("Can not open config file: %v\n", err)
 		os.Exit(1)
 	}
 
 	// Logfile (or its directory) must be unprivilegd
-	err = InitLoggers()
+	err = server.InitLoggers()
 	if err != nil {
 		logger.Errorf("Can not open log file: %v\n", err)
 		os.Exit(1)
@@ -923,20 +516,20 @@ func main() {
 				LoadConfig(*configPtr, *debugPtr)
 			case syscall.SIGUSR2:
 				logger.Infof("Got A USR2 Signal! Now Reopen log file....\n")
-				err := InitLoggers()
+				err := server.InitLoggers()
 				if err != nil {
 					logger.Errorf("Can not open log file\n")
 				}
 			case syscall.SIGWINCH:
 				logger.Infof("Got A WINCH Signal! Now Flush Resolved....\n")
-				ResolvedInit()
+				server.ResolvedInit()
 			}
 		}
 	}()
 
-	ResolvedTicker()
+	server.StartResolvedTicker()
 
-	http.HandleFunc("/", Handler)
+	http.Handle("/", server)
 	logger.Errorf("HTTP Server error: %v\n", http.ListenAndServe(config.HTTPBindAddress, nil))
 
 	CloseInfluxDB()
