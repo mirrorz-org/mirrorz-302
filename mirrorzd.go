@@ -125,3 +125,12 @@ func LoadMirrorZD(path string) (err error) {
 	})
 	return
 }
+
+func LookupMirrorZD(abbr string) (endpoints []EndpointInternal, ok bool) {
+	ep, ok := AbbrToEndpoints.Load(abbr)
+	if !ok {
+		return
+	}
+	endpoints, ok = ep.([]EndpointInternal)
+	return
+}

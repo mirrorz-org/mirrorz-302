@@ -260,11 +260,7 @@ func ResolveBest(res *api.QueryTableResult, traceBuilder *strings.Builder, trace
 		record := res.Record()
 		abbr := record.ValueByKey("mirror").(string)
 		traceFunc(fmt.Sprintf("abbr: %s\n", abbr))
-		ep, ok := AbbrToEndpoints.Load(abbr)
-		if !ok {
-			continue
-		}
-		endpoints, ok := ep.([]EndpointInternal)
+		endpoints, ok := LookupMirrorZD(abbr)
 		if !ok {
 			continue
 		}
@@ -406,11 +402,7 @@ func ResolveExist(res *api.QueryTableResult, traceBuilder *strings.Builder, trac
 		record := res.Record()
 		abbr := record.ValueByKey("mirror").(string)
 		traceFunc(fmt.Sprintf("abbr: %s\n", abbr))
-		ep, ok := AbbrToEndpoints.Load(abbr)
-		if !ok {
-			continue
-		}
-		endpoints, ok := ep.([]EndpointInternal)
+		endpoints, ok := LookupMirrorZD(abbr)
 		if !ok {
 			continue
 		}
