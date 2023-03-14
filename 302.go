@@ -57,45 +57,6 @@ func LoadConfig(path string, debug bool) (config Config, err error) {
 		logger.Errorf("LoadConfig json Unmarshal failed: %v\n", err)
 		return
 	}
-	if config.InfluxDB.Token == "" {
-		logger.Errorf("LoadConfig find no InfluxDBToken in file\n")
-		return
-	}
-	if config.InfluxDB.URL == "" {
-		config.InfluxDB.URL = "http://localhost:8086"
-	}
-	if config.InfluxDB.Bucket == "" {
-		config.InfluxDB.Bucket = "mirrorz"
-	}
-	if config.InfluxDB.Org == "" {
-		config.InfluxDB.Org = "mirrorz"
-	}
-	if config.IPASNURL == "" {
-		config.IPASNURL = "http://localhost:8889"
-	}
-	if config.HTTPBindAddress == "" {
-		config.HTTPBindAddress = "localhost:8888"
-	}
-	if config.MirrorZDDirectory == "" {
-		config.MirrorZDDirectory = "mirrorz.d"
-	}
-	if config.Homepage == "" {
-		config.Homepage = "mirrorz.org"
-	}
-	if config.DomainLength == 0 {
-		// 4 for *.mirrors.edu.cn
-		// 4 for *.m.mirrorz.org
-		// 5 for *.mirrors.cngi.edu.cn
-		// 5 for *.mirrors.cernet.edu.cn
-		config.DomainLength = 5
-	}
-	if config.CacheTime == 0 {
-		config.CacheTime = 300
-	}
-	// If you changed LogDirectory via SIGUSR1, you should issue SIGUSR2 manually
-	if config.LogDirectory == "" {
-		config.LogDirectory = "/var/log/mirrorzd"
-	}
 	logger.Debugf("LoadConfig InfluxDB URL: %s\n", config.InfluxDB.URL)
 	logger.Debugf("LoadConfig InfluxDB Org: %s\n", config.InfluxDB.Org)
 	logger.Debugf("LoadConfig InfluxDB Bucket: %s\n", config.InfluxDB.Bucket)
