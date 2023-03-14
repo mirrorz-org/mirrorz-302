@@ -34,9 +34,7 @@ type Config struct {
 }
 
 var (
-	config Config
-
-	logger   = loggo.GetLogger("main")
+	logger   = loggo.GetLogger("mirrorzd")
 	mirrorzd = mirrorzdb.NewMirrorZDatabase()
 )
 
@@ -104,12 +102,10 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	keyResolved, cacheHit := s.resolved.Load(key)
 
 	// all valid, use cached result
-	cur := time.Now().Unix()
-	if cacheHit && cur-keyResolved.last < config.CacheTime &&
-		cur-keyResolved.start < config.CacheTime {
+	if cacheHit && s.resolved.IsFresh(keyResolved) {
 		// update timestamp
-		keyResolved.last = cur
 		s.resolved.Store(key, keyResolved)
+		url = keyResolved.url
 		logFunc(url, scoring.Score{}, "C") // C for cache
 		return
 	}
@@ -122,8 +118,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 
 	var resolve, repo string
 
-	if cacheHit && cur-keyResolved.last < config.CacheTime &&
-		cur-keyResolved.start >= config.CacheTime {
+	if cacheHit && s.resolved.IsStale(keyResolved) {
 		resolve, repo = ResolveExist(ctx, res, keyResolved.resolve)
 	}
 
@@ -142,6 +137,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	} else {
 		url = fmt.Sprintf("%s://%s%s", meta.Scheme, resolve, repo)
 	}
+	cur := time.Now().Unix()
 	s.resolved.Store(key, Resolved{
 		start:   cur,
 		last:    cur,
@@ -284,16 +280,8 @@ func (s *MirrorZ302Server) CachePurge() {
 	s.resolved.Clear()
 }
 
-func (s *MirrorZ302Server) resolvedTicker(c <-chan time.Time) {
-	for t := range c {
-		s.resolved.GC(t, s.cacheGCLogger)
-	}
-}
-
 func (s *MirrorZ302Server) StartResolvedTicker() {
-	// GC on resolved
-	ticker := time.NewTicker(time.Second * time.Duration(config.CacheTime))
-	go s.resolvedTicker(ticker.C)
+	s.resolved.StartGCTicker(s.cacheGCLogger)
 }
 
 func main() {

@@ -33,8 +33,31 @@ func (c *ResolveCache) Load(key string) (Resolved, bool) {
 	return v.(Resolved), true
 }
 
+func (c *ResolveCache) IsFresh(v Resolved) bool {
+	cur := time.Now().Unix()
+	return cur-v.last < c.ttl && cur-v.start < c.ttl
+}
+
+func (c *ResolveCache) IsStale(v Resolved) bool {
+	cur := time.Now().Unix()
+	return cur-v.last < c.ttl && cur-v.start >= c.ttl
+}
+
 func (c *ResolveCache) Store(key string, value Resolved) {
+	value.last = time.Now().Unix()
 	c.Map.Store(key, value)
+}
+
+func (c *ResolveCache) Delete(key string) {
+	c.Map.Delete(key)
+}
+
+func (c *ResolveCache) Touch(key string) {
+	r, ok := c.Load(key)
+	if !ok {
+		return
+	}
+	c.Store(key, r)
 }
 
 func (c *ResolveCache) GC(t time.Time, logger *logging.Logger) {
@@ -53,6 +76,17 @@ func (c *ResolveCache) GC(t time.Time, logger *logging.Logger) {
 		return true
 	})
 	logger.Infof("Resolved GC done at %s\n\n", time.Now())
+}
+
+func (c *ResolveCache) GCTicker(ch <-chan time.Time, logger *logging.Logger) {
+	for t := range ch {
+		c.GC(t, logger)
+	}
+}
+
+func (c *ResolveCache) StartGCTicker(logger *logging.Logger) {
+	ticker := time.NewTicker(time.Second * time.Duration(c.ttl))
+	go c.GCTicker(ticker.C, logger)
 }
 
 func (c *ResolveCache) Clear() {

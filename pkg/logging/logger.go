@@ -20,8 +20,9 @@ type Logger struct {
 
 func NewLogger(filename string, level loggo.Level) *Logger {
 	l := &Logger{
-		context: loggo.NewContext(level),
-		file:    NewReopenFile(),
+		context:  loggo.NewContext(level),
+		file:     NewReopenFile(),
+		filename: filename,
 	}
 	l.context.AddWriter(DefaultWriter, loggo.NewSimpleWriter(l.file, LoggerFileFormatter))
 	l.Logger = l.context.GetLogger(DefaultWriter)

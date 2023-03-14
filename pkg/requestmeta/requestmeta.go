@@ -27,7 +27,7 @@ func (p *Parser) Parse(r *http.Request) (meta RequestMeta) {
 	meta.Scheme = p.Scheme(r)
 	meta.IP = p.IP(r)
 	meta.ASN = p.ASN(meta.IP)
-	meta.Labels = p.Host(r)
+	meta.Labels = p.Labels(r)
 	return
 }
 
@@ -74,7 +74,7 @@ func (p *Parser) ASN(ip net.IP) (asn string) {
 	return
 }
 
-func (p *Parser) Host(r *http.Request) (labels []string) {
+func (p *Parser) Labels(r *http.Request) (labels []string) {
 	dots := strings.Split(r.Header.Get("X-Forwarded-Host"), ".")
 	if len(dots) != p.DomainLength {
 		return

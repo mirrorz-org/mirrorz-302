@@ -22,6 +22,8 @@ type MirrorZ302Server struct {
 	resolved *ResolveCache
 	influx   *influxdb.Source
 	meta     *requestmeta.Parser
+
+	Homepage string
 }
 
 func NewMirrorZ302Server(config Config) *MirrorZ302Server {
@@ -41,6 +43,8 @@ func NewMirrorZ302Server(config Config) *MirrorZ302Server {
 
 		resolved: NewResolveCache(config.CacheTime),
 		influx:   influxdb.NewSourceFromConfig(config.InfluxDB),
+
+		Homepage: config.Homepage,
 	}
 
 	s.meta = &requestmeta.Parser{
@@ -70,7 +74,7 @@ func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	pathParts := strings.SplitN(r.URL.Path[1:], "/", 2)
 
 	if r.URL.Path == "/" {
-		labels := s.meta.Host(r)
+		labels := s.meta.Labels(r)
 		scheme := s.meta.Scheme(r)
 		if len(labels) != 0 {
 			resolve, ok := mirrorzd.ResolveLabel(labels[len(labels)-1])
@@ -79,7 +83,7 @@ func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, config.Homepage), http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, s.Homepage), http.StatusFound)
 		return
 	}
 
