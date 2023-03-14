@@ -87,6 +87,7 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// Match checks if the endpoint can serve the request.
 func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 	remoteIPv4 := m.IP.To4() != nil
 
@@ -109,11 +110,11 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 	return "OK", true
 }
 
+// Score calculates the score for the endpoint with a given request.
 func (e *Endpoint) Score(m requestmeta.RequestMeta) (score scoring.Score) {
 	for index, label := range m.Labels {
 		if label == e.Label {
 			score.Pos = index + 1
-			break
 		}
 	}
 	for _, endpointASN := range e.RangeASN {

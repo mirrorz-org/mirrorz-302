@@ -19,10 +19,10 @@ type Score struct {
 func (l Score) Less(r Score) bool {
 	// ret > 0 means r > l
 	if l.Pos != r.Pos {
-		return r.Pos-l.Pos < 0
+		return l.Pos < r.Pos
 	}
 	if l.Mask != r.Mask {
-		return r.Mask-l.Mask < 0
+		return l.Mask < r.Mask
 	}
 	if l.AS != r.AS {
 		return l.AS == 1
@@ -36,9 +36,9 @@ func (l Score) Less(r Score) bool {
 	} else if r.Delta < 0 && l.Delta > 0 {
 		return false
 	} else if r.Delta > 0 && l.Delta > 0 {
-		return l.Delta-r.Delta <= 0
+		return l.Delta <= r.Delta
 	} else {
-		return r.Delta-l.Delta <= 0
+		return r.Delta <= l.Delta
 	}
 }
 
@@ -54,9 +54,9 @@ func (l Score) Dominate(r Score) bool {
 	deltaDominate := false
 	if l.Delta == 0 && r.Delta == 0 {
 		deltaDominate = true
-	} else if l.Delta < 0 && r.Delta < 0 && l.Delta > r.Delta {
+	} else if l.Delta < 0 && r.Delta < l.Delta {
 		deltaDominate = true
-	} else if l.Delta > 0 && r.Delta > 0 && l.Delta < r.Delta {
+	} else if l.Delta > 0 && r.Delta > l.Delta {
 		deltaDominate = true
 	}
 	return l.DominateExceptDelta(r) && deltaDominate
