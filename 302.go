@@ -16,6 +16,7 @@ import (
 
 	"github.com/influxdata/influxdb-client-go/v2/api"
 	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
 	"github.com/mirrorz-org/mirrorz-302/pkg/trace"
 )
 
@@ -113,7 +114,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
 
-	meta := ParseRequestMeta(r)
+	meta := s.meta.Parse(r)
 	traceFunc("Labels: %v\n", meta.Labels)
 	traceFunc("IP: %v\n", meta.IP)
 	traceFunc("ASN: %s\n", meta.ASN)
@@ -138,7 +139,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	}
 
 	// check if already resolved / cached
-	key := CacheKey(meta, cname)
+	key := requestmeta.CacheKey(meta, cname)
 	keyResolved, cacheHit := s.resolved.Load(key)
 
 	// all valid, use cached result
@@ -190,7 +191,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	return
 }
 
-func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta RequestMeta) (chosenScore Score) {
+func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta requestmeta.RequestMeta) (chosenScore Score) {
 	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
 
@@ -324,7 +325,7 @@ func (s *MirrorZ302Server) CachePurge() {
 
 func (s *MirrorZ302Server) resolvedTicker(c <-chan time.Time) {
 	for t := range c {
-		s.resolved.GC(t, &s.cacheGCLogger)
+		s.resolved.GC(t, s.cacheGCLogger)
 	}
 }
 

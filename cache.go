@@ -3,6 +3,8 @@ package main
 import (
 	"sync"
 	"time"
+
+	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 )
 
 // IP, label to start, last timestamp, url
@@ -35,7 +37,7 @@ func (c *ResolveCache) Store(key string, value Resolved) {
 	c.Map.Store(key, value)
 }
 
-func (c *ResolveCache) GC(t time.Time, logger *Logger) {
+func (c *ResolveCache) GC(t time.Time, logger *logging.Logger) {
 	cur := t.Unix()
 	logger.Infof("Resolved GC start at %s\n", t)
 	c.Map.Range(func(k interface{}, v interface{}) bool {

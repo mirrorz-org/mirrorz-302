@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
 )
 
 var logger = loggo.GetLogger("mirrorzd")
@@ -85,7 +86,7 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (e *Endpoint) Match(m RequestMeta) (reason string, ok bool) {
+func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 	remoteIPv4 := m.IP.To4() != nil
 
 	if remoteIPv4 && !e.Filter.V4 {
@@ -107,7 +108,7 @@ func (e *Endpoint) Match(m RequestMeta) (reason string, ok bool) {
 	return "OK", true
 }
 
-func (e *Endpoint) Score(m RequestMeta) (score Score) {
+func (e *Endpoint) Score(m requestmeta.RequestMeta) (score Score) {
 	for index, label := range m.Labels {
 		if label == e.Label {
 			score.pos = index + 1

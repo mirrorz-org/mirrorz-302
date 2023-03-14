@@ -4,34 +4,58 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
+	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
 	"github.com/mirrorz-org/mirrorz-302/pkg/trace"
 )
 
 type MirrorZ302Server struct {
-	resolveLogger Logger
-	failLogger    Logger
-	cacheGCLogger Logger
+	resolveLogger *logging.Logger
+	failLogger    *logging.Logger
+	cacheGCLogger *logging.Logger
 
 	resolved *ResolveCache
+	meta     *requestmeta.Parser
 }
 
 func NewMirrorZ302Server(config Config) *MirrorZ302Server {
-	s := &MirrorZ302Server{}
-	s.resolved = NewResolveCache(config.CacheTime)
+	s := &MirrorZ302Server{
+		resolveLogger: logging.NewLogger(
+			filepath.Join(config.LogDirectory, "resolve.log"),
+			loggo.INFO,
+		),
+		failLogger: logging.NewLogger(
+			filepath.Join(config.LogDirectory, "fail.log"),
+			loggo.INFO,
+		),
+		cacheGCLogger: logging.NewLogger(
+			filepath.Join(config.LogDirectory, "gc.log"),
+			loggo.INFO,
+		),
+
+		resolved: NewResolveCache(config.CacheTime),
+	}
+
+	s.meta = &requestmeta.Parser{
+		IPASNURL:     config.IPASNURL,
+		DomainLength: config.DomainLength,
+		Logger:       s.resolveLogger,
+	}
 	return s
 }
 
 func (s *MirrorZ302Server) InitLoggers() (err error) {
-	if err = s.resolveLogger.Open("resolve.log", loggo.INFO); err != nil {
+	if err = s.resolveLogger.Open(); err != nil {
 		return
 	}
-	if err = s.failLogger.Open("fail.log", loggo.INFO); err != nil {
+	if err = s.failLogger.Open(); err != nil {
 		return
 	}
-	if err = s.cacheGCLogger.Open("gc.log", loggo.INFO); err != nil {
+	if err = s.cacheGCLogger.Open(); err != nil {
 		return
 	}
 	return
@@ -43,8 +67,8 @@ func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	pathParts := strings.SplitN(r.URL.Path[1:], "/", 2)
 
 	if r.URL.Path == "/" {
-		labels := Host(r)
-		scheme := Scheme(r)
+		labels := s.meta.Host(r)
+		scheme := s.meta.Scheme(r)
 		if len(labels) != 0 {
 			resolve, ok := mirrorzd.ResolveLabel(labels[len(labels)-1])
 			if ok {
