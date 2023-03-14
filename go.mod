@@ -1,4 +1,4 @@
-module mirrorzd
+module github.com/mirrorz-org/mirrorz-302
 
 go 1.18
 
