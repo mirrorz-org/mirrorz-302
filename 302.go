@@ -35,17 +35,11 @@ type Config struct {
 }
 
 var (
-	logger   = loggo.GetLogger("mirrorzd")
+	logger   = loggo.GetLogger("<root>")
 	mirrorzd = mirrorzdb.NewMirrorZDatabase()
 )
 
-func LoadConfig(path string, debug bool) (config Config, err error) {
-	if debug {
-		loggo.ConfigureLoggers("mirrorzd=DEBUG")
-	} else {
-		loggo.ConfigureLoggers("mirrorzd=INFO")
-	}
-
+func LoadConfig(path string) (config Config, err error) {
 	file, err := os.ReadFile(path)
 	if err != nil {
 		logger.Errorf("LoadConfig ReadFile failed: %v\n", err)
@@ -292,7 +286,13 @@ func main() {
 	debugPtr := flag.Bool("debug", false, "debug mode")
 	flag.Parse()
 
-	config, err := LoadConfig(*configPtr, *debugPtr)
+	if *debugPtr {
+		loggo.ConfigureLoggers("<root>=DEBUG")
+	} else {
+		loggo.ConfigureLoggers("<root>=INFO")
+	}
+
+	config, err := LoadConfig(*configPtr)
 	if err != nil {
 		logger.Errorf("Cannot open config file: %v\n", err)
 		os.Exit(1)
@@ -321,7 +321,7 @@ func main() {
 				mirrorzd.Load(config.MirrorZDDirectory)
 			case syscall.SIGUSR1:
 				logger.Infof("Got A USR1 Signal! Now Reloading config.json....\n")
-				LoadConfig(*configPtr, *debugPtr)
+				LoadConfig(*configPtr)
 			case syscall.SIGUSR2:
 				logger.Infof("Got A USR2 Signal! Now Reopen log file....\n")
 				err := server.InitLoggers()
