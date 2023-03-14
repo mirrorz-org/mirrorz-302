@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/influxdata/influxdb-client-go/v2/api"
 	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/mirrorzdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
 	"github.com/mirrorz-org/mirrorz-302/pkg/scoring"
@@ -23,17 +23,14 @@ import (
 )
 
 type Config struct {
-	InfluxDBURL       string `json:"influxdb-url"`
-	InfluxDBToken     string `json:"influxdb-token"`
-	InfluxDBBucket    string `json:"influxdb-bucket"`
-	InfluxDBOrg       string `json:"influxdb-org"`
-	IPASNURL          string `json:"ipasn-url"`
-	HTTPBindAddress   string `json:"http-bind-address"`
-	MirrorZDDirectory string `json:"mirrorz-d-directory"`
-	Homepage          string `json:"homepage"`
-	DomainLength      int    `json:"domain-length"`
-	CacheTime         int64  `json:"cache-time"`
-	LogDirectory      string `json:"log-directory"`
+	InfluxDB          influxdb.Config `json:"influxdb"`
+	IPASNURL          string          `json:"ipasn-url"`
+	HTTPBindAddress   string          `json:"http-bind-address"`
+	MirrorZDDirectory string          `json:"mirrorz-d-directory"`
+	Homepage          string          `json:"homepage"`
+	DomainLength      int             `json:"domain-length"`
+	CacheTime         int64           `json:"cache-time"`
+	LogDirectory      string          `json:"log-directory"`
 }
 
 var (
@@ -60,18 +57,18 @@ func LoadConfig(path string, debug bool) (config Config, err error) {
 		logger.Errorf("LoadConfig json Unmarshal failed: %v\n", err)
 		return
 	}
-	if config.InfluxDBToken == "" {
+	if config.InfluxDB.Token == "" {
 		logger.Errorf("LoadConfig find no InfluxDBToken in file\n")
 		return
 	}
-	if config.InfluxDBURL == "" {
-		config.InfluxDBURL = "http://localhost:8086"
+	if config.InfluxDB.URL == "" {
+		config.InfluxDB.URL = "http://localhost:8086"
 	}
-	if config.InfluxDBBucket == "" {
-		config.InfluxDBBucket = "mirrorz"
+	if config.InfluxDB.Bucket == "" {
+		config.InfluxDB.Bucket = "mirrorz"
 	}
-	if config.InfluxDBOrg == "" {
-		config.InfluxDBOrg = "mirrorz"
+	if config.InfluxDB.Org == "" {
+		config.InfluxDB.Org = "mirrorz"
 	}
 	if config.IPASNURL == "" {
 		config.IPASNURL = "http://localhost:8889"
@@ -99,9 +96,9 @@ func LoadConfig(path string, debug bool) (config Config, err error) {
 	if config.LogDirectory == "" {
 		config.LogDirectory = "/var/log/mirrorzd"
 	}
-	logger.Debugf("LoadConfig InfluxDB URL: %s\n", config.InfluxDBURL)
-	logger.Debugf("LoadConfig InfluxDB Org: %s\n", config.InfluxDBOrg)
-	logger.Debugf("LoadConfig InfluxDB Bucket: %s\n", config.InfluxDBBucket)
+	logger.Debugf("LoadConfig InfluxDB URL: %s\n", config.InfluxDB.URL)
+	logger.Debugf("LoadConfig InfluxDB Org: %s\n", config.InfluxDB.Org)
+	logger.Debugf("LoadConfig InfluxDB Bucket: %s\n", config.InfluxDB.Bucket)
 	logger.Debugf("LoadConfig IPASN URL: %s\n", config.IPASNURL)
 	logger.Debugf("LoadConfig HTTP Bind Address: %s\n", config.HTTPBindAddress)
 	logger.Debugf("LoadConfig MirrorZ D Directory: %s\n", config.MirrorZDDirectory)
@@ -156,7 +153,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 		return
 	}
 
-	res, err := QueryInflux(ctx, cname)
+	res, err := s.influx.Query(ctx, cname)
 	if err != nil {
 		logger.Errorf("Resolve query: %v\n", err)
 		return
@@ -194,7 +191,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	return
 }
 
-func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta requestmeta.RequestMeta) (chosenScore scoring.Score) {
+func ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (chosenScore scoring.Score) {
 	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
 
@@ -295,7 +292,7 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta requestmet
 	return
 }
 
-func ResolveExist(ctx context.Context, res *api.QueryTableResult, oldResolve string) (resolve string, repo string) {
+func ResolveExist(ctx context.Context, res influxdb.Result, oldResolve string) (resolve string, repo string) {
 	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
 
@@ -363,8 +360,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	OpenInfluxDB()
-	defer CloseInfluxDB()
+	//defer server.influx.Close()
 
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2, syscall.SIGWINCH)

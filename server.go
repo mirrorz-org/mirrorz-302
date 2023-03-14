@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
 	"github.com/mirrorz-org/mirrorz-302/pkg/trace"
@@ -19,6 +20,7 @@ type MirrorZ302Server struct {
 	cacheGCLogger *logging.Logger
 
 	resolved *ResolveCache
+	influx   *influxdb.Source
 	meta     *requestmeta.Parser
 }
 
@@ -38,6 +40,7 @@ func NewMirrorZ302Server(config Config) *MirrorZ302Server {
 		),
 
 		resolved: NewResolveCache(config.CacheTime),
+		influx:   influxdb.NewSourceFromConfig(config.InfluxDB),
 	}
 
 	s.meta = &requestmeta.Parser{
