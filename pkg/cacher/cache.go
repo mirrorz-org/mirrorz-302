@@ -1,4 +1,4 @@
-package main
+package cacher
 
 import (
 	"sync"
@@ -9,10 +9,11 @@ import (
 
 // IP, label to start, last timestamp, url
 type Resolved struct {
-	start   int64 // starting timestamp, namely still check db after some time
-	last    int64 // last update timestamp
-	url     string
-	resolve string // only used in resolveExist
+	start int64 // starting timestamp, namely still check db after some time
+	last  int64 // last update timestamp
+
+	Url     string
+	Resolve string // only used in resolveExist
 }
 
 type ResolveCache struct {
@@ -44,7 +45,11 @@ func (c *ResolveCache) IsStale(v Resolved) bool {
 }
 
 func (c *ResolveCache) Store(key string, value Resolved) {
-	value.last = time.Now().Unix()
+	cur := time.Now().Unix()
+	if value.start == 0 {
+		value.start = cur
+	}
+	value.last = cur
 	c.Map.Store(key, value)
 }
 
@@ -71,7 +76,7 @@ func (c *ResolveCache) GC(t time.Time, logger *logging.Logger) {
 		}
 		if cur-r.start >= c.ttl && cur-r.last >= c.ttl {
 			c.Map.Delete(k)
-			logger.Infof("Resolved GC %s: %s\n", k, r.url)
+			logger.Infof("Resolved GC %s: %s\n", k, r.Url)
 		}
 		return true
 	})

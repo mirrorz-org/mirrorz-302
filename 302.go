@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/cacher"
 	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/mirrorzdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
@@ -105,7 +106,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	if cacheHit && s.resolved.IsFresh(keyResolved) {
 		// update timestamp
 		s.resolved.Store(key, keyResolved)
-		url = keyResolved.url
+		url = keyResolved.Url
 		logFunc(url, scoring.Score{}, "C") // C for cache
 		return
 	}
@@ -119,7 +120,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	var resolve, repo string
 
 	if cacheHit && s.resolved.IsStale(keyResolved) {
-		resolve, repo = ResolveExist(ctx, res, keyResolved.resolve)
+		resolve, repo = ResolveExist(ctx, res, keyResolved.Resolve)
 	}
 
 	var chosenScore scoring.Score
@@ -137,12 +138,9 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	} else {
 		url = fmt.Sprintf("%s://%s%s", meta.Scheme, resolve, repo)
 	}
-	cur := time.Now().Unix()
-	s.resolved.Store(key, Resolved{
-		start:   cur,
-		last:    cur,
-		url:     url,
-		resolve: resolve,
+	s.resolved.Store(key, cacher.Resolved{
+		Url:     url,
+		Resolve: resolve,
 	})
 	logFunc(url, chosenScore, "R") // R for resolve
 	return
