@@ -146,6 +146,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	return
 }
 
+// ResolveBest tries to find the best mirror for the given request
 func ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (chosenScore scoring.Score) {
 	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
@@ -247,6 +248,7 @@ func ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.Requ
 	return
 }
 
+// ResolveExist returns the site and repo if the previous resolved mirror is still valid
 func ResolveExist(ctx context.Context, res influxdb.Result, oldResolve string) (resolve string, repo string) {
 	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
