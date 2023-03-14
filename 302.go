@@ -16,6 +16,7 @@ import (
 
 	"github.com/influxdata/influxdb-client-go/v2/api"
 	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/trace"
 )
 
 type Config struct {
@@ -109,7 +110,7 @@ func LoadConfig(path string, debug bool) (config Config, err error) {
 
 func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, err error) {
 	ctx := r.Context()
-	tracer := ctx.Value(TracerKey).(Tracer)
+	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
 
 	meta := ParseRequestMeta(r)
@@ -190,7 +191,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 }
 
 func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta RequestMeta) (chosenScore Score) {
-	tracer := ctx.Value(TracerKey).(Tracer)
+	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
 
 	var scores Scores
@@ -291,7 +292,7 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta RequestMet
 }
 
 func ResolveExist(ctx context.Context, res *api.QueryTableResult, oldResolve string) (resolve string, repo string) {
-	tracer := ctx.Value(TracerKey).(Tracer)
+	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
 
 outerLoop:

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/trace"
 )
 
 type MirrorZ302Server struct {
@@ -62,8 +63,8 @@ func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, traceEnabled := r.URL.Query()["trace"]
-	tracer := NewTracer(traceEnabled)
-	ctx := context.WithValue(r.Context(), TracerKey, tracer)
+	tracer := trace.NewTracer(traceEnabled)
+	ctx := context.WithValue(r.Context(), trace.Key, tracer)
 	r = r.WithContext(ctx)
 
 	url, err := s.Resolve(r, cname)

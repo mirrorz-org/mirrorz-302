@@ -1,4 +1,4 @@
-package main
+package trace
 
 import (
 	"fmt"
@@ -8,8 +8,8 @@ import (
 
 type tracerKey struct{}
 
-// TracerKey can be used as a key in context.WithValue
-var TracerKey = tracerKey{}
+// Key can be used as a key in context.WithValue
+var Key = tracerKey{}
 
 // A Tracer is a convenient string builder for accumulating debug output. It is intended to be passed with a context.Context.
 type Tracer interface {
