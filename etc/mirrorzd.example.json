@@ -8,7 +8,7 @@
   "ipasn-url": "http://localhost:8889",
   "http-bind-address": "127.0.0.1:8888",
   "mirrorz-d-directory": "mirrorz.d",
-  "homepage": "https://mirrorz.org/",
+  "homepage": "mirrorz.org",
   "domain-length": 5,
   "cache-time": 300,
   "log-directory": "/var/log/mirrorzd"
