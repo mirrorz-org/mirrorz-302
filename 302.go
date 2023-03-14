@@ -78,17 +78,17 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 		if url != "" {
 			// record detail in resolve log
 			s.resolveLogger.Debugf("%s", tracer.String())
-			resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s\n",
+			resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s",
 				char, url, meta.IP, meta.ASN, meta.Labels,
 				score.LogString())
-			s.resolveLogger.Infof("%s", resolvedLog)
-			traceFunc("%s", resolvedLog)
+			s.resolveLogger.Infof("%s\n", resolvedLog)
+			traceFunc("%s\n", resolvedLog)
 		} else {
 			// record detail in fail log
 			s.failLogger.Debugf("%s", tracer.String())
-			failLog := fmt.Sprintf("F: %s (%v, %s) %v\n", cname, meta.IP, meta.ASN, meta.Labels)
-			s.failLogger.Infof("%s", failLog)
-			traceFunc("%s", failLog)
+			failLog := fmt.Sprintf("F: %s (%v, %s) %v", cname, meta.IP, meta.ASN, meta.Labels)
+			s.failLogger.Infof("%s\n", failLog)
+			traceFunc("%s\n", failLog)
 		}
 	}
 
