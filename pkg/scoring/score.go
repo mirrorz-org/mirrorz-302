@@ -16,13 +16,15 @@ type Score struct {
 	Repo    string
 }
 
+// Less determines whether l is better than r
+//
+// In a list of best scores, Less determines if l should go before r.
 func (l Score) Less(r Score) bool {
-	// ret > 0 means r > l
 	if l.Pos != r.Pos {
-		return l.Pos < r.Pos
+		return l.Pos > r.Pos
 	}
 	if l.Mask != r.Mask {
-		return l.Mask < r.Mask
+		return l.Mask > r.Mask
 	}
 	if l.AS != r.AS {
 		return l.AS == 1
@@ -76,14 +78,17 @@ func (l Score) LogString() string {
 
 type Scores []Score
 
+// Len, Less, Swap implement the sort.Interface interface.
 func (s Scores) Len() int {
 	return len(s)
 }
 
+// Less determines whether l should be sorted before r
 func (s Scores) Less(l, r int) bool {
 	return s[l].Less(s[r])
 }
 
+// Swap swaps the elements with indexes l and r.
 func (s Scores) Swap(l, r int) { s[l], s[r] = s[r], s[l] }
 
 func (scores Scores) OptimalsExceptDelta() (optimalScores Scores) {
