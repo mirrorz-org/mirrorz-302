@@ -16,7 +16,9 @@ import (
 
 	"github.com/influxdata/influxdb-client-go/v2/api"
 	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/mirrorzdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
+	"github.com/mirrorz-org/mirrorz-302/pkg/scoring"
 	"github.com/mirrorz-org/mirrorz-302/pkg/trace"
 )
 
@@ -37,7 +39,8 @@ type Config struct {
 var (
 	config Config
 
-	mirrorzd = NewMirrorZD()
+	logger   = loggo.GetLogger("main")
+	mirrorzd = mirrorzdb.NewMirrorZDatabase()
 )
 
 func LoadConfig(path string, debug bool) (config Config, err error) {
@@ -120,7 +123,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	traceFunc("ASN: %s\n", meta.ASN)
 	traceFunc("Scheme: %s\n", meta.Scheme)
 
-	logFunc := func(url string, score Score, char string) {
+	logFunc := func(url string, score scoring.Score, char string) {
 		if url != "" {
 			// record detail in resolve log
 			s.resolveLogger.Debugf("%s", tracer.String())
@@ -149,7 +152,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 		// update timestamp
 		keyResolved.last = cur
 		s.resolved.Store(key, keyResolved)
-		logFunc(url, Score{}, "C") // C for cache
+		logFunc(url, scoring.Score{}, "C") // C for cache
 		return
 	}
 
@@ -166,12 +169,12 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 		resolve, repo = ResolveExist(ctx, res, keyResolved.resolve)
 	}
 
-	var chosenScore Score
+	var chosenScore scoring.Score
 	if resolve == "" && repo == "" {
 		// ResolveExist failed
 		chosenScore = ResolveBest(ctx, res, meta)
-		resolve = chosenScore.resolve
-		repo = chosenScore.repo
+		resolve = chosenScore.Resolve
+		repo = chosenScore.Repo
 	}
 
 	if resolve == "" && repo == "" {
@@ -191,11 +194,11 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	return
 }
 
-func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta requestmeta.RequestMeta) (chosenScore Score) {
+func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta requestmeta.RequestMeta) (chosenScore scoring.Score) {
 	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
 
-	var scores Scores
+	var scores scoring.Scores
 
 	for res.Next() {
 		record := res.Record()
@@ -205,7 +208,7 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta requestmet
 		if !ok {
 			continue
 		}
-		var scoresEndpoints Scores
+		var scoresEndpoints scoring.Scores
 		for _, endpoint := range endpoints {
 			traceFunc("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
 			if reason, ok := endpoint.Match(meta); !ok {
@@ -213,15 +216,15 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta requestmet
 				continue
 			}
 			score := endpoint.Score(meta)
-			score.delta = int(record.Value().(int64))
-			score.repo = record.ValueByKey("path").(string)
+			score.Delta = int(record.Value().(int64))
+			score.Repo = record.ValueByKey("path").(string)
 			traceFunc("    score: %v\n", score)
 
-			//if score.delta < -60*60*24*3 { // 3 days
+			//if score.Delta < -60*60*24*3 { // 3 days
 			//    traceFunc("    not up-to-date enough\n")
 			//    continue
 			//}
-			if !endpoint.Public && score.mask == 0 && score.as == 0 {
+			if !endpoint.Public && score.Mask == 0 && score.AS == 0 {
 				traceFunc("    not hit private\n")
 				continue
 			}
@@ -266,7 +269,7 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta requestmet
 	allDelta := scores.AllDelta()
 	allEqualExceptDelta := optimalScores.AllEqualExceptDelta()
 	if allEqualExceptDelta || allDelta {
-		var candidateScores Scores
+		var candidateScores scoring.Scores
 		if allDelta {
 			// Note: allDelta == true implies allEqualExceptDelta == true
 			candidateScores = scores

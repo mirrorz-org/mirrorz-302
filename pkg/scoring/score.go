@@ -1,4 +1,4 @@
-package main
+package scoring
 
 import (
 	"fmt"
@@ -6,72 +6,72 @@ import (
 )
 
 type Score struct {
-	pos   int // pos of label, bigger = better
-	mask  int // longest mask
-	as    int // is in AS
-	delta int // often negative
+	Pos   int // pos of label, bigger = better
+	Mask  int // longest mask
+	AS    int // is in AS
+	Delta int // often negative
 
 	// payload
-	resolve string
-	repo    string
+	Resolve string
+	Repo    string
 }
 
 func (l Score) Less(r Score) bool {
 	// ret > 0 means r > l
-	if l.pos != r.pos {
-		return r.pos-l.pos < 0
+	if l.Pos != r.Pos {
+		return r.Pos-l.Pos < 0
 	}
-	if l.mask != r.mask {
-		return r.mask-l.mask < 0
+	if l.Mask != r.Mask {
+		return r.Mask-l.Mask < 0
 	}
-	if l.as != r.as {
-		return l.as == 1
+	if l.AS != r.AS {
+		return l.AS == 1
 	}
-	if l.delta == 0 {
+	if l.Delta == 0 {
 		return false
-	} else if r.delta == 0 {
+	} else if r.Delta == 0 {
 		return true
-	} else if l.delta < 0 && r.delta > 0 {
+	} else if l.Delta < 0 && r.Delta > 0 {
 		return true
-	} else if r.delta < 0 && l.delta > 0 {
+	} else if r.Delta < 0 && l.Delta > 0 {
 		return false
-	} else if r.delta > 0 && l.delta > 0 {
-		return l.delta-r.delta <= 0
+	} else if r.Delta > 0 && l.Delta > 0 {
+		return l.Delta-r.Delta <= 0
 	} else {
-		return r.delta-l.delta <= 0
+		return r.Delta-l.Delta <= 0
 	}
 }
 
 func (l Score) DominateExceptDelta(r Score) bool {
 	rangeDominate := false
-	if l.mask > r.mask || (l.mask == r.mask && l.as >= r.as && r.as != 1) {
+	if l.Mask > r.Mask || (l.Mask == r.Mask && l.AS >= r.AS && r.AS != 1) {
 		rangeDominate = true
 	}
-	return l.pos >= r.pos && rangeDominate
+	return l.Pos >= r.Pos && rangeDominate
 }
 
 func (l Score) Dominate(r Score) bool {
 	deltaDominate := false
-	if l.delta == 0 && r.delta == 0 {
+	if l.Delta == 0 && r.Delta == 0 {
 		deltaDominate = true
-	} else if l.delta < 0 && r.delta < 0 && l.delta > r.delta {
+	} else if l.Delta < 0 && r.Delta < 0 && l.Delta > r.Delta {
 		deltaDominate = true
-	} else if l.delta > 0 && r.delta > 0 && l.delta < r.delta {
+	} else if l.Delta > 0 && r.Delta > 0 && l.Delta < r.Delta {
 		deltaDominate = true
 	}
 	return l.DominateExceptDelta(r) && deltaDominate
 }
 
 func (l Score) DeltaOnly() bool {
-	return l.pos == 0 && l.mask == 0 && l.as == 0
+	return l.Pos == 0 && l.Mask == 0 && l.AS == 0
 }
 
 func (l Score) EqualExceptDelta(r Score) bool {
-	return l.pos == r.pos && l.mask == r.mask && l.as == r.as
+	return l.Pos == r.Pos && l.Mask == r.Mask && l.AS == r.AS
 }
 
 func (l Score) LogString() string {
-	return fmt.Sprintf("%d %d %d %d", l.pos, l.mask, l.as, l.delta)
+	return fmt.Sprintf("%d %d %d %d", l.Pos, l.Mask, l.AS, l.Delta)
 }
 
 type Scores []Score

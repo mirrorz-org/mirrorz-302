@@ -1,4 +1,4 @@
-package main
+package mirrorzdb
 
 import (
 	"encoding/json"
@@ -10,9 +10,10 @@ import (
 
 	"github.com/juju/loggo"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
+	"github.com/mirrorz-org/mirrorz-302/pkg/scoring"
 )
 
-var logger = loggo.GetLogger("mirrorzd")
+var logger = loggo.GetLogger("mirrorzdb")
 
 type Endpoint struct {
 	Label   string
@@ -108,28 +109,28 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 	return "OK", true
 }
 
-func (e *Endpoint) Score(m requestmeta.RequestMeta) (score Score) {
+func (e *Endpoint) Score(m requestmeta.RequestMeta) (score scoring.Score) {
 	for index, label := range m.Labels {
 		if label == e.Label {
-			score.pos = index + 1
+			score.Pos = index + 1
 			break
 		}
 	}
 	for _, endpointASN := range e.RangeASN {
 		if endpointASN == m.ASN {
-			score.as = 1
+			score.AS = 1
 			break
 		}
 	}
 	for _, ipnet := range e.RangeCIDR {
 		if m.IP != nil && ipnet.Contains(m.IP) {
 			mask, _ := ipnet.Mask.Size()
-			if mask > score.mask {
-				score.mask = mask
+			if mask > score.Mask {
+				score.Mask = mask
 			}
 		}
 	}
-	score.resolve = e.Resolve
+	score.Resolve = e.Resolve
 	return
 }
 
@@ -137,13 +138,13 @@ type Site struct {
 	Abbr string `json:"abbr"`
 }
 
-type MirrorZDData struct {
+type MirrorZDFile struct {
 	Extension string     `json:"extension"`
 	Endpoints []Endpoint `json:"endpoints"`
 	Site      Site       `json:"site"`
 }
 
-type MirrorZD struct {
+type MirrorZDatabase struct {
 	// map[string]string
 	labelToResolve sync.Map
 
@@ -151,11 +152,11 @@ type MirrorZD struct {
 	abbrToEndpoints sync.Map
 }
 
-func NewMirrorZD() *MirrorZD {
-	return new(MirrorZD)
+func NewMirrorZDatabase() *MirrorZDatabase {
+	return new(MirrorZDatabase)
 }
 
-func (m *MirrorZD) Load(path string) (err error) {
+func (m *MirrorZDatabase) Load(path string) (err error) {
 	files, err := os.ReadDir(path)
 	if err != nil {
 		logger.Errorf("LoadMirrorZD: cannot open mirrorz.d directory: %v\n", err)
@@ -170,7 +171,7 @@ func (m *MirrorZD) Load(path string) (err error) {
 			logger.Errorf("LoadMirrorZD: read %s failed\n", file.Name())
 			continue
 		}
-		var data MirrorZDData
+		var data MirrorZDFile
 		if err := json.Unmarshal(content, &data); err != nil {
 			logger.Errorf("LoadMirrorZD: Parse %s error: %v\n", file.Name(), err)
 			continue
@@ -189,7 +190,7 @@ func (m *MirrorZD) Load(path string) (err error) {
 	return
 }
 
-func (m *MirrorZD) Lookup(abbr string) (endpoints []Endpoint, ok bool) {
+func (m *MirrorZDatabase) Lookup(abbr string) (endpoints []Endpoint, ok bool) {
 	ep, ok := m.abbrToEndpoints.Load(abbr)
 	if !ok {
 		return
@@ -198,7 +199,7 @@ func (m *MirrorZD) Lookup(abbr string) (endpoints []Endpoint, ok bool) {
 	return
 }
 
-func (m *MirrorZD) ResolveLabel(label string) (resolve string, ok bool) {
+func (m *MirrorZDatabase) ResolveLabel(label string) (resolve string, ok bool) {
 	r, ok := m.labelToResolve.Load(label)
 	if !ok {
 		return
