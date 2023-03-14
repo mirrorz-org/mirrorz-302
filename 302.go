@@ -121,18 +121,18 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	logFunc := func(url string, score Score, char string) {
 		if url != "" {
 			// record detail in resolve log
-			s.resolveLogger.Debugf(tracer.String())
+			s.resolveLogger.Debugf("%s", tracer.String())
 			resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s\n",
 				char, url, meta.IP, meta.ASN, meta.Labels,
 				score.LogString())
-			s.resolveLogger.Infof(resolvedLog)
-			traceFunc(resolvedLog)
+			s.resolveLogger.Infof("%s", resolvedLog)
+			traceFunc("%s", resolvedLog)
 		} else {
 			// record detail in fail log
-			s.failLogger.Debugf(tracer.String())
+			s.failLogger.Debugf("%s", tracer.String())
 			failLog := fmt.Sprintf("F: %s (%v, %s) %v\n", cname, meta.IP, meta.ASN, meta.Labels)
-			s.failLogger.Infof(failLog)
-			traceFunc(failLog)
+			s.failLogger.Infof("%s", failLog)
+			traceFunc("%s", failLog)
 		}
 	}
 
@@ -157,8 +157,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 		return
 	}
 
-	var resolve string
-	var repo string
+	var resolve, repo string
 
 	if cacheHit && cur-keyResolved.last < config.CacheTime &&
 		cur-keyResolved.start >= config.CacheTime {
@@ -167,7 +166,7 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 
 	var chosenScore Score
 	if resolve == "" && repo == "" {
-		// the above IF does not hold or resolveNotExist
+		// ResolveExist failed
 		chosenScore = ResolveBest(ctx, res, meta)
 		resolve = chosenScore.resolve
 		repo = chosenScore.repo
@@ -291,8 +290,7 @@ func ResolveBest(ctx context.Context, res *api.QueryTableResult, meta RequestMet
 	return
 }
 
-func ResolveExist(ctx context.Context, res *api.QueryTableResult,
-	oldResolve string) (resolve string, repo string) {
+func ResolveExist(ctx context.Context, res *api.QueryTableResult, oldResolve string) (resolve string, repo string) {
 	tracer := ctx.Value(TracerKey).(Tracer)
 	traceFunc := tracer.Printf
 

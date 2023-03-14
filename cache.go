@@ -31,8 +31,8 @@ func (c *ResolveCache) Load(key string) (Resolved, bool) {
 	return v.(Resolved), true
 }
 
-func (c *ResolveCache) Store(key string, v Resolved) {
-	c.Map.Store(key, v)
+func (c *ResolveCache) Store(key string, value Resolved) {
+	c.Map.Store(key, value)
 }
 
 func (c *ResolveCache) GC(t time.Time, logger *Logger) {
@@ -54,5 +54,8 @@ func (c *ResolveCache) GC(t time.Time, logger *Logger) {
 }
 
 func (c *ResolveCache) Clear() {
-	c.Map = sync.Map{}
+	c.Map.Range(func(k interface{}, v interface{}) bool {
+		c.Map.Delete(k)
+		return true
+	})
 }

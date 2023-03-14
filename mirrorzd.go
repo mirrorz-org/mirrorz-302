@@ -24,7 +24,7 @@ type Endpoint struct {
 		V6Only  bool
 		SSL     bool
 		NOSSL   bool
-		SPECIAL []string
+		Special []string
 	}
 	RangeASN  []string
 	RangeCIDR []*net.IPNet
@@ -62,7 +62,7 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 			e.Filter.SSL = true
 		default:
 			// TODO: more structured
-			e.Filter.SPECIAL = append(e.Filter.SPECIAL, d)
+			e.Filter.Special = append(e.Filter.Special, d)
 		}
 	}
 	if e.Filter.V4 && !e.Filter.V6 {
