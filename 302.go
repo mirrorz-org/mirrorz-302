@@ -162,7 +162,7 @@ func ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.Requ
 				traceFunc("    %s\n", reason)
 				continue
 			}
-			score := endpoint.Score(meta)
+			score := scoring.Eval(&endpoint, meta)
 			score.Delta = int(record.Value().(int64))
 			score.Repo = record.ValueByKey("path").(string)
 			traceFunc("    score: %v\n", score)
@@ -242,7 +242,7 @@ func ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.Requ
 	return
 }
 
-// ResolveExist returns the site and repo if the previous resolved mirror is still valid
+// ResolveExist refreshes a stale cached result
 func ResolveExist(ctx context.Context, res influxdb.Result, oldResolve string) (resolve string, repo string) {
 	tracer := ctx.Value(trace.Key).(trace.Tracer)
 	traceFunc := tracer.Printf
@@ -279,7 +279,7 @@ func (s *MirrorZ302Server) StartResolvedTicker() {
 }
 
 func main() {
-	//lint:ignore SA1019 we don't care
+	//lint:ignore SA1019 - we don't care
 	rand.Seed(time.Now().Unix())
 
 	configPtr := flag.String("config", "config.json", "path to config file")
@@ -309,8 +309,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	//defer server.influx.Close()
-
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2, syscall.SIGWINCH)
 	go func() {
@@ -326,7 +324,7 @@ func main() {
 				logger.Infof("Got A USR2 Signal! Now Reopen log file....\n")
 				err := server.InitLoggers()
 				if err != nil {
-					logger.Errorf("Can not open log file\n")
+					logger.Errorf("Error reopening log file: %v\n", err)
 				}
 			case syscall.SIGWINCH:
 				logger.Infof("Got A WINCH Signal! Now Flush Resolved....\n")

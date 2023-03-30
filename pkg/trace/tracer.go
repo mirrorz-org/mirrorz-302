@@ -6,10 +6,14 @@ import (
 	"strings"
 )
 
-type tracerKey struct{}
+type contextKey int
 
 // Key can be used as a key in context.WithValue
-var Key = tracerKey{}
+const Key contextKey = iota
+
+func (contextKey) String() string {
+	return "context key for trace"
+}
 
 // A Tracer is a convenient string builder for accumulating debug output. It is intended to be passed with a context.Context.
 type Tracer interface {
@@ -37,6 +41,10 @@ type bufTracer struct {
 
 // Printf implements the Tracer interface.
 func (t *bufTracer) Printf(format string, args ...any) {
+	if len(args) == 0 {
+		t.b.WriteString(format)
+		return
+	}
 	fmt.Fprintf(&t.b, format, args...)
 }
 

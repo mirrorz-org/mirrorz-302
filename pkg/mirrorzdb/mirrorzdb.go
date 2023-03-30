@@ -10,7 +10,6 @@ import (
 
 	"github.com/juju/loggo"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
-	"github.com/mirrorz-org/mirrorz-302/pkg/scoring"
 )
 
 var logger = loggo.GetLogger("mirrorzdb")
@@ -108,31 +107,6 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 		return "label v6only but endpoint not v6only", false
 	}
 	return "OK", true
-}
-
-// Score calculates the score for the endpoint with a given request.
-func (e *Endpoint) Score(m requestmeta.RequestMeta) (score scoring.Score) {
-	for index, label := range m.Labels {
-		if label == e.Label {
-			score.Pos = index + 1
-		}
-	}
-	for _, endpointASN := range e.RangeASN {
-		if endpointASN == m.ASN {
-			score.AS = 1
-			break
-		}
-	}
-	for _, ipnet := range e.RangeCIDR {
-		if m.IP != nil && ipnet.Contains(m.IP) {
-			mask, _ := ipnet.Mask.Size()
-			if mask > score.Mask {
-				score.Mask = mask
-			}
-		}
-	}
-	score.Resolve = e.Resolve
-	return
 }
 
 type Site struct {

@@ -61,7 +61,7 @@ func (l Score) Dominate(r Score) bool {
 	} else if l.Delta > 0 && r.Delta > l.Delta {
 		deltaDominate = true
 	}
-	return l.DominateExceptDelta(r) && deltaDominate
+	return deltaDominate && l.DominateExceptDelta(r)
 }
 
 func (l Score) DeltaOnly() bool {
@@ -97,6 +97,7 @@ func (scores Scores) OptimalsExceptDelta() (optimalScores Scores) {
 		for j, r := range scores {
 			if i != j && r.DominateExceptDelta(l) {
 				dominated = true
+				break
 			}
 		}
 		if !dominated {
@@ -112,6 +113,7 @@ func (scores Scores) Optimals() (optimalScores Scores) {
 		for j, r := range scores {
 			if i != j && r.Dominate(l) {
 				dominated = true
+				break
 			}
 		}
 		if !dominated {
@@ -135,7 +137,7 @@ func (scores Scores) AllEqualExceptDelta() bool {
 		return true
 	}
 	for _, l := range scores {
-		if !l.EqualExceptDelta(scores[0]) { // [0] valid ensured by previous if
+		if !l.EqualExceptDelta(scores[0]) {
 			return false
 		}
 	}
