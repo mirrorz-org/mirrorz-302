@@ -6,7 +6,7 @@ import (
 )
 
 // Eval calculates the score for the endpoint with a given request.
-func Eval(e *mirrorzdb.Endpoint, m requestmeta.RequestMeta) (score Score) {
+func Eval(e mirrorzdb.Endpoint, m requestmeta.RequestMeta) (score Score) {
 	for index, label := range m.Labels {
 		if label == e.Label {
 			score.Pos = index + 1

@@ -9,6 +9,7 @@ type Score struct {
 	Pos   int // pos of label, bigger = better
 	Mask  int // longest mask
 	AS    int // is in AS
+	Geo   int // geological distance
 	Delta int // often negative
 
 	// payload

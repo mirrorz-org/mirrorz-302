@@ -162,7 +162,7 @@ func ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.Requ
 				traceFunc("    %s\n", reason)
 				continue
 			}
-			score := scoring.Eval(&endpoint, meta)
+			score := scoring.Eval(endpoint, meta)
 			score.Delta = int(record.Value().(int64))
 			score.Repo = record.ValueByKey("path").(string)
 			traceFunc("    score: %v\n", score)
