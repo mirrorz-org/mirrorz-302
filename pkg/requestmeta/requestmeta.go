@@ -31,7 +31,11 @@ func (p *Parser) Parse(r *http.Request) (meta RequestMeta) {
 		p.Logger.Warningf("IPDB lookup failed for %s: %v\n", meta.IP, err)
 	} else {
 		meta.Region = geo.NameToCode(ipinfo.RegionName)
-		meta.ISP = strings.Split(ipinfo.Line, "/")
+		for _, line := range strings.Split(ipinfo.Line, "/") {
+			if isp := geo.ISPNameToCode(line); isp != "" {
+				meta.ISP = append(meta.ISP, isp)
+			}
+		}
 	}
 	meta.Region = geo.NameToCode(ipinfo.RegionName)
 	meta.Labels = p.Labels(r)

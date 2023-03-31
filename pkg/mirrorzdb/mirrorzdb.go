@@ -77,7 +77,7 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 	for _, d := range j.Range {
 		if region, ok := strings.CutPrefix(d, "REGION:"); ok {
 			e.RangeRegion = append(e.RangeRegion, region)
-		} else if isp, ok := strings.CutPrefix(d, "LINE:"); ok {
+		} else if isp, ok := strings.CutPrefix(d, "ISP:"); ok {
 			e.RangeISP = append(e.RangeISP, isp)
 		} else {
 			_, ipnet, _ := net.ParseCIDR(d)
