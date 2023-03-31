@@ -49,7 +49,6 @@ func NewMirrorZ302Server(config Config) *MirrorZ302Server {
 	}
 
 	s.meta = &requestmeta.Parser{
-		IPASNURL:     config.IPASNURL,
 		DomainLength: config.DomainLength,
 		Logger:       s.resolveLogger,
 	}

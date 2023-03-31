@@ -27,8 +27,9 @@ type Endpoint struct {
 		NOSSL   bool
 		Special []string
 	}
-	RangeASN  []string
-	RangeCIDR []*net.IPNet
+	RangeRegion []string
+	RangeISP    []string
+	RangeCIDR   []*net.IPNet
 }
 
 // endpointJSON is used to parse Endpoint from JSON.
@@ -74,8 +75,10 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 	}
 	// Range
 	for _, d := range j.Range {
-		if strings.HasPrefix(d, "AS") {
-			e.RangeASN = append(e.RangeASN, d[2:])
+		if region, ok := strings.CutPrefix(d, "REGION:"); ok {
+			e.RangeRegion = append(e.RangeRegion, region)
+		} else if isp, ok := strings.CutPrefix(d, "LINE:"); ok {
+			e.RangeISP = append(e.RangeISP, isp)
 		} else {
 			_, ipnet, _ := net.ParseCIDR(d)
 			if ipnet != nil {

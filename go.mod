@@ -1,6 +1,6 @@
 module github.com/mirrorz-org/mirrorz-302
 
-go 1.18
+go 1.20
 
 require (
 	github.com/influxdata/influxdb-client-go/v2 v2.4.0

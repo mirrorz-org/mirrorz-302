@@ -46,9 +46,23 @@ var codeToInfo = map[string]geoInfo{
 
 var nameToCode = make(map[string]string, len(codeToInfo))
 
+var ispCodeToName = map[string]string{
+	"CERNET":   "教育网",
+	"CMCC":     "移动",
+	"CHINANET": "电信",
+	"UNICOM":   "联通",
+	"CSTNET":   "科技网",
+	"DRPENG":   "鹏博士",
+}
+
+var ispNameToCode = make(map[string]string, len(ispCodeToName))
+
 func init() {
 	for k, v := range codeToInfo {
 		nameToCode[v.Name] = k
+	}
+	for k, v := range ispCodeToName {
+		ispNameToCode[v] = k
 	}
 }
 
@@ -61,7 +75,11 @@ func NameToCode(name string) string {
 	return nameToCode[name]
 }
 
-// The Harvesine formula, implemented following https://www.movable-type.co.uk/scripts/latlong.html
+func ISPNameToCode(name string) string {
+	return ispNameToCode[name]
+}
+
+// The Haversine formula, implemented following https://www.movable-type.co.uk/scripts/latlong.html
 func Haversine(Lat1, Long1, Lat2, Long2 float64) float64 {
 	const R = 6371e3 // metres
 	phi1 := Lat1 * math.Pi / 180

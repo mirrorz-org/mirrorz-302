@@ -16,6 +16,7 @@ import (
 
 	"github.com/juju/loggo"
 	"github.com/mirrorz-org/mirrorz-302/pkg/cacher"
+	"github.com/mirrorz-org/mirrorz-302/pkg/geo"
 	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/mirrorzdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
@@ -25,7 +26,7 @@ import (
 
 type Config struct {
 	InfluxDB          influxdb.Config `json:"influxdb"`
-	IPASNURL          string          `json:"ipasn-url"`
+	IPDBFile          string          `json:"ipdb-file"`
 	HTTPBindAddress   string          `json:"http-bind-address"`
 	MirrorZDDirectory string          `json:"mirrorz-d-directory"`
 	Homepage          string          `json:"homepage"`
@@ -53,7 +54,7 @@ func LoadConfig(path string) (config Config, err error) {
 	logger.Debugf("LoadConfig InfluxDB URL: %s\n", config.InfluxDB.URL)
 	logger.Debugf("LoadConfig InfluxDB Org: %s\n", config.InfluxDB.Org)
 	logger.Debugf("LoadConfig InfluxDB Bucket: %s\n", config.InfluxDB.Bucket)
-	logger.Debugf("LoadConfig IPASN URL: %s\n", config.IPASNURL)
+	logger.Debugf("LoadConfig IPDB File: %s\n", config.IPDBFile)
 	logger.Debugf("LoadConfig HTTP Bind Address: %s\n", config.HTTPBindAddress)
 	logger.Debugf("LoadConfig MirrorZ D Directory: %s\n", config.MirrorZDDirectory)
 	logger.Debugf("LoadConfig Homepage: %s\n", config.Homepage)
@@ -71,22 +72,23 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	meta := s.meta.Parse(r)
 	traceFunc("Labels: %v\n", meta.Labels)
 	traceFunc("IP: %v\n", meta.IP)
-	traceFunc("ASN: %s\n", meta.ASN)
+	traceFunc("Region: %s\n", meta.Region)
+	traceFunc("ISP: %s\n", meta.ISP)
 	traceFunc("Scheme: %s\n", meta.Scheme)
 
 	logFunc := func(url string, score scoring.Score, char string) {
 		if url != "" {
 			// record detail in resolve log
 			s.resolveLogger.Debugf("%s", tracer.String())
-			resolvedLog := fmt.Sprintf("%s: %s (%v, %s) %v %s",
-				char, url, meta.IP, meta.ASN, meta.Labels,
+			resolvedLog := fmt.Sprintf("%s: %s %s %s",
+				char, url, meta,
 				score.LogString())
 			s.resolveLogger.Infof("%s\n", resolvedLog)
 			traceFunc("%s\n", resolvedLog)
 		} else {
 			// record detail in fail log
 			s.failLogger.Debugf("%s", tracer.String())
-			failLog := fmt.Sprintf("F: %s (%v, %s) %v", cname, meta.IP, meta.ASN, meta.Labels)
+			failLog := fmt.Sprintf("F: %s %s", cname, meta)
 			s.failLogger.Infof("%s\n", failLog)
 			traceFunc("%s\n", failLog)
 		}
@@ -171,7 +173,7 @@ func ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.Requ
 			//    traceFunc("    not up-to-date enough\n")
 			//    continue
 			//}
-			if !endpoint.Public && score.Mask == 0 && score.AS == 0 {
+			if !endpoint.Public && score.Mask == 0 && score.ISP == 0 {
 				traceFunc("    not hit private\n")
 				continue
 			}
@@ -296,6 +298,10 @@ func main() {
 	if err != nil {
 		logger.Errorf("Cannot open config file: %v\n", err)
 		os.Exit(1)
+	}
+
+	if config.IPDBFile != "" {
+		geo.LoadIPDB(config.IPDBFile)
 	}
 
 	mirrorzd.Load(config.MirrorZDDirectory)

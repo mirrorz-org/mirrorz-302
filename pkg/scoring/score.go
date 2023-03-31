@@ -6,11 +6,11 @@ import (
 )
 
 type Score struct {
-	Pos   int // pos of label, bigger = better
-	Mask  int // longest mask
-	AS    int // is in AS
-	Geo   int // geological distance
-	Delta int // often negative
+	Pos   int     // pos of label, bigger = better
+	Mask  int     // longest mask
+	Geo   float64 // geographical distance
+	ISP   int     // matching ISP
+	Delta int     // often negative
 
 	// payload
 	Resolve string
@@ -27,8 +27,16 @@ func (l Score) Less(r Score) bool {
 	if l.Mask != r.Mask {
 		return l.Mask > r.Mask
 	}
-	if l.AS != r.AS {
-		return l.AS == 1
+	// Favor ISP over geo distance
+	lGeo, rGeo := l.Geo, r.Geo
+	if l.ISP > 0 {
+		lGeo /= 2
+	}
+	if r.ISP > 0 {
+		rGeo /= 2
+	}
+	if lGeo != rGeo {
+		return lGeo < rGeo
 	}
 	if l.Delta == 0 {
 		return false
@@ -47,7 +55,7 @@ func (l Score) Less(r Score) bool {
 
 func (l Score) DominateExceptDelta(r Score) bool {
 	rangeDominate := false
-	if l.Mask > r.Mask || (l.Mask == r.Mask && l.AS >= r.AS && r.AS != 1) {
+	if l.Mask > r.Mask || (l.Mask == r.Mask && l.ISP >= r.ISP && r.ISP == 0) {
 		rangeDominate = true
 	}
 	return l.Pos >= r.Pos && rangeDominate
@@ -66,15 +74,15 @@ func (l Score) Dominate(r Score) bool {
 }
 
 func (l Score) DeltaOnly() bool {
-	return l.Pos == 0 && l.Mask == 0 && l.AS == 0
+	return l.Pos == 0 && l.Mask == 0 && l.ISP == 0
 }
 
 func (l Score) EqualExceptDelta(r Score) bool {
-	return l.Pos == r.Pos && l.Mask == r.Mask && l.AS == r.AS
+	return l.Pos == r.Pos && l.Mask == r.Mask && l.ISP == r.ISP
 }
 
 func (l Score) LogString() string {
-	return fmt.Sprintf("%d %d %d %d", l.Pos, l.Mask, l.AS, l.Delta)
+	return fmt.Sprintf("%d %d %.f %d %d", l.Pos, l.Mask, l.Geo, l.ISP, l.Delta)
 }
 
 type Scores []Score
