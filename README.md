@@ -61,7 +61,9 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
       "filter": [ "V4", "SSL", "NOSSL" ],
       "range": [
         "AS4134",
-        "AS4809"
+        "AS4809",
+        "REGION:AH",
+        "LINE:CHINANET"
       ]
     },
     {
@@ -93,5 +95,11 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
     + Syntar sugar: By default we assume each endpoint has both A and AAAA, hence `resolve: "mirrors.example.com", filter:["V4", "V6"]` is equivalent to `resolve: "mirrors.example.com", filter:[]`. To be more simple, `resolve:"10.10.10.10", filter: [ "V4" ]` can be rewritten into `resolve: "10.10.10.10", filter: []`. Note that `resolve: "10.10.10.10", filter: ["V6"]` is invalid and the `"V6"` filter will be ignored.
     + Partial capability: One endpoint with `filter: [ "NOSSL", "SSL", "SSL:centos" ]`, namely force SSL for one `cname` called `centos`. If one user requests with `http://mirrors.edu.cn/centos`, this endpoint would not be redirected.
   - Private mirror site may use a private IP but declare a public range. For example, suppose USTC has a private IP range of 10.0.0.0/8, USTC mirror is located at 10.0.0.1:8080, and when one user inside USTC accesses `mirrors.edu.cn`, its IP is NATed into 202.0.0.0/24, then `mirrors.edu.cn` can resolve the request into `ustccampus` endpoint.
+  - Possible values for `range`
+    + COUNTRY: Must start with `COUNTRY`, then a colon, then ISO country code. Example: `COUNTRY:CN` or `COUNTRY:US`. Default to `CN`.
+    + REGION: Must start with `REGION`, then a colon, then province name. Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai). Default to `BJ`.
+    + LINE: Must start with `LINE`, then a colon, then ISP name. Example: `LINE:CERNET` or `LINE:CHINANET`. Default to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
+    + ASN (deprecated): Must start with `AS`. Example: `AS4538` and `AS13335`
+    + CIDR: Example: `202.0.0.0/24` or `2001:da8::/32`
 * site/mirrors
   - This is used by `mirrors.edu.cn` monitor, while `site` and `mirrors` in `mirrorz.json` is only used by frontend
