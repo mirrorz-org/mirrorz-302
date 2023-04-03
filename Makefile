@@ -1,8 +1,11 @@
 BIN ?= mirrorzd
 
-.PHONY: all clean $(BIN)
+.PHONY: all test clean $(BIN)
 
 all: $(BIN)
+
+test:
+	go test ./...
 
 clean:
 	rm $(BIN)
