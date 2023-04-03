@@ -18,9 +18,10 @@ type RequestMeta struct {
 	Labels []string
 }
 
+var parserLogger = logging.GetLogger("resolve", "parser")
+
 type Parser struct {
 	DomainLength int
-	Logger       *logging.Logger
 }
 
 func (p *Parser) Parse(r *http.Request) (meta RequestMeta) {
@@ -28,7 +29,7 @@ func (p *Parser) Parse(r *http.Request) (meta RequestMeta) {
 	meta.IP = p.IP(r)
 	ipinfo, err := geo.Lookup(meta.IP.String())
 	if err != nil {
-		p.Logger.Warningf("IPDB lookup failed for %s: %v\n", meta.IP, err)
+		parserLogger.Warningf("IPDB lookup failed for %s: %v\n", meta.IP, err)
 	} else {
 		meta.Region = geo.NameToCode(ipinfo.RegionName)
 		for _, line := range strings.Split(ipinfo.Line, "/") {

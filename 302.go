@@ -275,7 +275,7 @@ func (s *MirrorZ302Server) CachePurge() {
 }
 
 func (s *MirrorZ302Server) StartResolvedTicker() {
-	s.resolved.StartGCTicker(s.cacheGCLogger)
+	s.resolved.StartGCTicker()
 }
 
 func main() {

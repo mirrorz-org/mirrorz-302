@@ -7,6 +7,8 @@ import (
 	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 )
 
+var cacheGCLogger = logging.GetLogger("gc", "<root>")
+
 // IP, label to start, last timestamp, url
 type Resolved struct {
 	start int64 // starting timestamp, namely still check db after some time
@@ -65,9 +67,9 @@ func (c *ResolveCache) Touch(key string) {
 	c.Store(key, r)
 }
 
-func (c *ResolveCache) GC(t time.Time, logger *logging.Logger) {
+func (c *ResolveCache) GC(t time.Time) {
 	cur := t.Unix()
-	logger.Infof("Resolved GC start at %s\n", t)
+	cacheGCLogger.Infof("Resolved GC start at %s\n", t)
 	c.Map.Range(func(k interface{}, v interface{}) bool {
 		r, ok := v.(Resolved)
 		if !ok {
@@ -76,22 +78,22 @@ func (c *ResolveCache) GC(t time.Time, logger *logging.Logger) {
 		}
 		if cur-r.start >= c.ttl && cur-r.last >= c.ttl {
 			c.Map.Delete(k)
-			logger.Infof("Resolved GC %s: %s\n", k, r.Url)
+			cacheGCLogger.Infof("Resolved GC %s: %s\n", k, r.Url)
 		}
 		return true
 	})
-	logger.Infof("Resolved GC done at %s\n\n", time.Now())
+	cacheGCLogger.Infof("Resolved GC done at %s\n\n", time.Now())
 }
 
-func (c *ResolveCache) GCTicker(ch <-chan time.Time, logger *logging.Logger) {
+func (c *ResolveCache) GCTicker(ch <-chan time.Time) {
 	for t := range ch {
-		c.GC(t, logger)
+		c.GC(t)
 	}
 }
 
-func (c *ResolveCache) StartGCTicker(logger *logging.Logger) {
+func (c *ResolveCache) StartGCTicker() {
 	ticker := time.NewTicker(time.Second * time.Duration(c.ttl))
-	go c.GCTicker(ticker.C, logger)
+	go c.GCTicker(ticker.C)
 }
 
 func (c *ResolveCache) Clear() {

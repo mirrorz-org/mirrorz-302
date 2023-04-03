@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/juju/loggo"
@@ -16,56 +17,45 @@ import (
 )
 
 type MirrorZ302Server struct {
-	resolveLogger *logging.Logger
-	failLogger    *logging.Logger
-	cacheGCLogger *logging.Logger
-
 	resolved *cacher.ResolveCache
 	influx   *influxdb.Source
 	meta     *requestmeta.Parser
+
+	logDirectory string
+
+	resolveLogger, failLogger loggo.Logger
 
 	Homepage string
 }
 
 func NewMirrorZ302Server(config Config) *MirrorZ302Server {
 	s := &MirrorZ302Server{
-		resolveLogger: logging.NewLogger(
-			filepath.Join(config.LogDirectory, "resolve.log"),
-			loggo.INFO,
-		),
-		failLogger: logging.NewLogger(
-			filepath.Join(config.LogDirectory, "fail.log"),
-			loggo.INFO,
-		),
-		cacheGCLogger: logging.NewLogger(
-			filepath.Join(config.LogDirectory, "gc.log"),
-			loggo.INFO,
-		),
-
 		resolved: cacher.NewResolveCache(config.CacheTime),
 		influx:   influxdb.NewSourceFromConfig(config.InfluxDB),
+		meta: &requestmeta.Parser{
+			DomainLength: config.DomainLength,
+		},
+
+		resolveLogger: logging.GetLogger("resolve", "<root>"),
+		failLogger:    logging.GetLogger("fail", "<root>"),
 
 		Homepage: config.Homepage,
-	}
-
-	s.meta = &requestmeta.Parser{
-		DomainLength: config.DomainLength,
-		Logger:       s.resolveLogger,
 	}
 	return s
 }
 
-func (s *MirrorZ302Server) InitLoggers() (err error) {
-	if err = s.resolveLogger.Open(); err != nil {
-		return
+var logContexts = []string{"resolve", "fail", "gc"}
+
+func (s *MirrorZ302Server) InitLoggers() error {
+	defer runtime.GC() // trigger finalizers on released *os.File's
+	dir := s.logDirectory
+	for _, context := range logContexts {
+		err := logging.SetContextFile(context, filepath.Join(dir, context+".log"))
+		if err != nil {
+			return err
+		}
 	}
-	if err = s.failLogger.Open(); err != nil {
-		return
-	}
-	if err = s.cacheGCLogger.Open(); err != nil {
-		return
-	}
-	return
+	return nil
 }
 
 // ServeHTTP implements the http.Handler interface.
