@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -12,45 +12,63 @@ import (
 	"github.com/mirrorz-org/mirrorz-302/pkg/cacher"
 	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
+	"github.com/mirrorz-org/mirrorz-302/pkg/mirrorzdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
 	"github.com/mirrorz-org/mirrorz-302/pkg/trace"
 )
 
-type MirrorZ302Server struct {
+type Config struct {
+	InfluxDB          influxdb.Config `json:"influxdb"`
+	IPDBFile          string          `json:"ipdb-file"`
+	HTTPBindAddress   string          `json:"http-bind-address"`
+	MirrorZDDirectory string          `json:"mirrorz-d-directory"`
+	Homepage          string          `json:"homepage"`
+	DomainLength      int             `json:"domain-length"`
+	CacheTime         int64           `json:"cache-time"`
+	LogDirectory      string          `json:"log-directory"`
+}
+
+type Server struct {
 	resolved *cacher.ResolveCache
+	mirrorzd *mirrorzdb.MirrorZDatabase
 	influx   *influxdb.Source
 	meta     *requestmeta.Parser
 
-	logDirectory string
+	logDir      string
+	mirrorzdDir string
 
-	resolveLogger, failLogger loggo.Logger
+	resolveLogger, failLogger, errorLogger loggo.Logger
 
 	Homepage string
 }
 
-func NewMirrorZ302Server(config Config) *MirrorZ302Server {
-	s := &MirrorZ302Server{
+func NewServer(config Config) *Server {
+	s := &Server{
 		resolved: cacher.NewResolveCache(config.CacheTime),
+		mirrorzd: mirrorzdb.NewMirrorZDatabase(),
 		influx:   influxdb.NewSourceFromConfig(config.InfluxDB),
 		meta: &requestmeta.Parser{
 			DomainLength: config.DomainLength,
 		},
 
+		logDir:      config.LogDirectory,
+		mirrorzdDir: config.MirrorZDDirectory,
+
 		resolveLogger: logging.GetLogger("resolve"),
 		failLogger:    logging.GetLogger("fail"),
+		errorLogger:   logging.GetLogger("error"),
 
 		Homepage: config.Homepage,
 	}
 	return s
 }
 
-var logContexts = []string{"resolve", "fail", "gc", "ipip", "parser"}
+var logContexts = []string{"resolve", "fail", "gc", "ipip", "parser", "error"}
 
-func (s *MirrorZ302Server) InitLoggers() error {
+func (s *Server) InitLoggers() error {
 	defer runtime.GC() // trigger finalizers on released *os.File's
-	dir := s.logDirectory
 	for _, context := range logContexts {
-		err := logging.SetContextFile(context, filepath.Join(dir, context+".log"))
+		err := logging.SetContextFile(context, filepath.Join(s.logDir, context+".log"))
 		if err != nil {
 			return err
 		}
@@ -58,8 +76,12 @@ func (s *MirrorZ302Server) InitLoggers() error {
 	return nil
 }
 
+func (s *Server) LoadMirrorZD() error {
+	return s.mirrorzd.Load(s.mirrorzdDir)
+}
+
 // ServeHTTP implements the http.Handler interface.
-func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Remove leading '/'
 	pathParts := strings.SplitN(r.URL.Path[1:], "/", 2)
 
@@ -67,7 +89,7 @@ func (s *MirrorZ302Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		labels := s.meta.Labels(r)
 		scheme := s.meta.Scheme(r)
 		if len(labels) != 0 {
-			resolve, ok := mirrorzd.ResolveLabel(labels[len(labels)-1])
+			resolve, ok := s.mirrorzd.ResolveLabel(labels[len(labels)-1])
 			if ok {
 				http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, resolve), http.StatusFound)
 				return
