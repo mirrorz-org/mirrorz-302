@@ -44,7 +44,7 @@ func NewMirrorZ302Server(config Config) *MirrorZ302Server {
 	return s
 }
 
-var logContexts = []string{"resolve", "fail", "gc", "ipip"}
+var logContexts = []string{"resolve", "fail", "gc", "ipip", "parser"}
 
 func (s *MirrorZ302Server) InitLoggers() error {
 	defer runtime.GC() // trigger finalizers on released *os.File's
