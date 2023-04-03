@@ -36,8 +36,8 @@ func NewMirrorZ302Server(config Config) *MirrorZ302Server {
 			DomainLength: config.DomainLength,
 		},
 
-		resolveLogger: logging.GetLogger("resolve", "<root>"),
-		failLogger:    logging.GetLogger("fail", "<root>"),
+		resolveLogger: logging.GetLogger("resolve"),
+		failLogger:    logging.GetLogger("fail"),
 
 		Homepage: config.Homepage,
 	}

@@ -18,7 +18,7 @@ type RequestMeta struct {
 	Labels []string
 }
 
-var parserLogger = logging.GetLogger("parser", "<root>")
+var parserLogger = logging.GetLogger("parser")
 
 type Parser struct {
 	DomainLength int

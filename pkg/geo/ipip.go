@@ -17,7 +17,7 @@ var defaultCityInfo = CityInfo{
 	Line:        "教育网",
 }
 
-var logger = logging.GetLogger("ipip", "<root>")
+var logger = logging.GetLogger("ipip")
 
 func LoadIPDB(filename string) error {
 	newdb, err := ipdb.NewCity(filename)

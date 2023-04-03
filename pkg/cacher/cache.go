@@ -7,7 +7,7 @@ import (
 	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 )
 
-var cacheGCLogger = logging.GetLogger("gc", "<root>")
+var cacheGCLogger = logging.GetLogger("gc")
 
 // IP, label to start, last timestamp, url
 type Resolved struct {

@@ -45,8 +45,8 @@ func SetContextFile(name, filename string) error {
 	return nil
 }
 
-func GetLogger(contextName, moduleName string) loggo.Logger {
-	return GetContext(contextName).GetLogger(moduleName)
+func GetLogger(name string) loggo.Logger {
+	return GetContext(name).GetLogger("<root>")
 }
 
 func LoggerFileFormatter(entry loggo.Entry) string {
