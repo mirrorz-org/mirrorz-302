@@ -4,7 +4,7 @@ import (
 	"sync/atomic"
 
 	"github.com/ipipdotnet/ipdb-go"
-	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 )
 
 type CityInfo = ipdb.CityInfo
@@ -17,7 +17,7 @@ var defaultCityInfo = CityInfo{
 	Line:        "教育网",
 }
 
-var logger = loggo.GetLogger("ipip")
+var logger = logging.GetLogger("ipip", "<root>")
 
 func LoadIPDB(filename string) error {
 	newdb, err := ipdb.NewCity(filename)
