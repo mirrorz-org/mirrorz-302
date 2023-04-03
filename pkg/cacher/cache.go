@@ -9,8 +9,8 @@ import (
 
 // IP, label to start, last timestamp, url
 type Resolved struct {
-	start int64 // starting timestamp, namely still check db after some time
-	last  int64 // last update timestamp
+	start time.Time // time of last write
+	last  time.Time // time of last read
 
 	Url     string
 	Resolve string // only used in resolveExist
@@ -19,11 +19,11 @@ type Resolved struct {
 type ResolveCache struct {
 	sync.Map // map[string]Resolved
 
-	ttl int64
+	ttl time.Duration
 }
 
-func NewResolveCache(ttl int64) *ResolveCache {
-	return &ResolveCache{ttl: ttl}
+func NewResolveCache(ttlSeconds int) *ResolveCache {
+	return &ResolveCache{ttl: time.Duration(ttlSeconds) * time.Second}
 }
 
 func (c *ResolveCache) Load(key string) (Resolved, bool) {
@@ -35,18 +35,18 @@ func (c *ResolveCache) Load(key string) (Resolved, bool) {
 }
 
 func (c *ResolveCache) IsFresh(v Resolved) bool {
-	cur := time.Now().Unix()
-	return cur-v.last < c.ttl && cur-v.start < c.ttl
+	cur := time.Now()
+	return cur.Sub(v.last) < c.ttl && cur.Sub(v.start) < c.ttl
 }
 
 func (c *ResolveCache) IsStale(v Resolved) bool {
-	cur := time.Now().Unix()
-	return cur-v.last < c.ttl && cur-v.start >= c.ttl
+	cur := time.Now()
+	return cur.Sub(v.last) < c.ttl && cur.Sub(v.start) >= c.ttl
 }
 
 func (c *ResolveCache) Store(key string, value Resolved) {
-	cur := time.Now().Unix()
-	if value.start == 0 {
+	cur := time.Now()
+	if value.start.IsZero() {
 		value.start = cur
 	}
 	value.last = cur
@@ -65,16 +65,15 @@ func (c *ResolveCache) Touch(key string) {
 	c.Store(key, r)
 }
 
-func (c *ResolveCache) GC(t time.Time, logger *logging.Logger) {
-	cur := t.Unix()
-	logger.Infof("Resolved GC start at %s\n", t)
+func (c *ResolveCache) GC(cur time.Time, logger *logging.Logger) {
+	logger.Infof("Resolved GC start at %s\n", cur)
 	c.Map.Range(func(k interface{}, v interface{}) bool {
 		r, ok := v.(Resolved)
 		if !ok {
 			c.Map.Delete(k)
 			return true
 		}
-		if cur-r.start >= c.ttl && cur-r.last >= c.ttl {
+		if cur.Sub(r.start) >= c.ttl && cur.Sub(r.last) >= c.ttl {
 			c.Map.Delete(k)
 			logger.Infof("Resolved GC %s: %s\n", k, r.Url)
 		}

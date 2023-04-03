@@ -30,7 +30,7 @@ type Config struct {
 	MirrorZDDirectory string          `json:"mirrorz-d-directory"`
 	Homepage          string          `json:"homepage"`
 	DomainLength      int             `json:"domain-length"`
-	CacheTime         int64           `json:"cache-time"`
+	CacheTime         int             `json:"cache-time"`
 	LogDirectory      string          `json:"log-directory"`
 }
 

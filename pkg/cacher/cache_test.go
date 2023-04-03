@@ -9,18 +9,18 @@ import (
 
 func TestResolveCache(t *testing.T) {
 	as := assert.New(t)
-	c := NewResolveCache(10000000000)
+	c := NewResolveCache(10)
 
-	now := time.Now().Unix()
+	now := time.Now()
 	r := Resolved{start: now, last: now}
 	as.True(c.IsFresh(r))
 	as.False(c.IsStale(r))
 
-	r.start -= 15000000000
+	r.start = r.start.Add(-15 * time.Second)
 	as.False(c.IsFresh(r))
 	as.True(c.IsStale(r))
 
-	r.last -= 15000000000
+	r.last = r.last.Add(-15 * time.Second)
 	as.False(c.IsFresh(r))
 	as.False(c.IsStale(r))
 }
