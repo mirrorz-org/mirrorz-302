@@ -36,8 +36,8 @@ func Lookup(ip string) (*CityInfo, error) {
 		return &ci, nil
 	}
 	result, err := p.FindInfo(ip, "CN")
-	if result.CountryName == result.RegionName {
-		logger.Warningf("IPIP: Identical CountryName and RegionName: %s, %s", ip, result.CountryName)
+	if result.RegionName == "中国" {
+		logger.Warningf("IPIP: Noteworthy RegionName: %s, %s", ip, result.RegionName)
 	}
 	return result, err
 }

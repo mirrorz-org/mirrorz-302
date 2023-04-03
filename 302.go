@@ -72,8 +72,6 @@ func (s *MirrorZ302Server) Resolve(r *http.Request, cname string) (url string, e
 	meta := s.meta.Parse(r)
 	traceFunc("Labels: %v\n", meta.Labels)
 	traceFunc("IP: %v\n", meta.IP)
-	traceFunc("Region: %s\n", meta.Region)
-	traceFunc("ISP: %s\n", meta.ISP)
 	traceFunc("Scheme: %s\n", meta.Scheme)
 
 	logFunc := func(url string, score scoring.Score, char string) {

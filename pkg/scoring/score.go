@@ -27,7 +27,7 @@ func (l Score) Less(r Score) bool {
 	if l.Mask != r.Mask {
 		return l.Mask > r.Mask
 	}
-	// Favor ISP over geo distance
+	// Favor ISP over raw geo distance
 	lGeo, rGeo := l.Geo, r.Geo
 	if l.ISP > 0 {
 		lGeo /= 2
@@ -37,6 +37,9 @@ func (l Score) Less(r Score) bool {
 	}
 	if lGeo != rGeo {
 		return lGeo < rGeo
+	} else if l.ISP > r.ISP {
+		// Same "effective" geo distance, prefer matching ISP
+		return true
 	}
 	if l.Delta == 0 {
 		return false

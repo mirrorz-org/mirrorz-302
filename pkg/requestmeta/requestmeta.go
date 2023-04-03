@@ -37,7 +37,6 @@ func (p *Parser) Parse(r *http.Request) (meta RequestMeta) {
 			}
 		}
 	}
-	meta.Region = geo.NameToCode(ipinfo.RegionName)
 	meta.Labels = p.Labels(r)
 	return
 }
