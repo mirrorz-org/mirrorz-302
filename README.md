@@ -128,7 +128,11 @@ The first endpoint is the default endpoint. If all the endpoints have the same p
 
 Usually, the first endpoint is a generic endpoint (e.g. `mirrors.xx.edu.cn`). To make a preference difference, if further endpoint (e.g. `mirrors4` or `cmcc.mirrors`) covers a more specfic `range`, the generic endpoint should not declare these ranges and the redirector should redirect the user to the more specific endpoint.
 
-Note that for filter, this is another story: we prefer `mirrors` over `mirrors4` (same range so same preference, then the first one), but we prefer `cmcc.mirrors` over `mirrors` (`cmcc` has a more specified range)
+For example, if `mirrors4` contains some CIDR in its range, e.g. `166.111.0.0`, then we prefer `mirrors4` over `mirrors` when there are requests from that CIDR.
+
+Another example is that for CMCC users, we prefer `cmcc.mirrors` over `mirrors`.
+
+If a user does not match any range or match exactly the same in `mirrors` and `mirrors4`, then we prefer `mirrors`, i.e. the default one.
 
 #### On range when private endpoint
 
