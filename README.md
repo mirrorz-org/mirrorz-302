@@ -94,10 +94,10 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
     + `NOSSL`: HTTP available
     + `V4`: IPv4 available (A record)
     + `V6`: IPv6 available (AAAA record)
-  - `range`: when `public`, the endpoint **prefers** these ranges, other user may still use this endpoint; otherwise it **only serves** these CIDRs/LINEs (Note that GEO is not included)
+  - `range`: when `public`, the endpoint **prefers** these ranges, other user may still use this endpoint; otherwise it **only serves** these CIDRs/ISPs (Note that GEO is not included)
     + COUNTRY: Must start with `COUNTRY`, then a colon, then [ISO country code](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2). Example: `COUNTRY:CN` or `COUNTRY:US`. Default to `CN`.
     + REGION: Must start with `REGION`, then a colon, then province name (GB/T 2260-2007). Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai). Default to `BJ`.
-    + LINE: Must start with `LINE`, then a colon, then ISP name. Example: `LINE:CERNET` or `LINE:CHINANET`. Default to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
+    + ISP: Must start with `ISP`, then a colon, then ISP name. Example: `ISP:CERNET` or `ISP:CHINANET`. Default to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
     + ASN (deprecated): Must start with `AS`. Example: `AS4538` and `AS13335`
     + CIDR: Example: `202.0.0.0/24` or `2001:da8::/32`
 * site/mirrors
@@ -113,14 +113,14 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
       "public": true,
       "resolve": "mirrors.ustc.edu.cn",
       "filter": [ "V4", "V6", "SSL", "NOSSL" ],
-      "range": [ " LINE:CMCC should not be included here as we already have a more specified endpoint. " ]
+      "range": [ " ISP:CMCC should not be included here as we already have a more specified endpoint. " ]
     },
     {
       "label": "ustccmcc",
       "public": true,
       "resolve": "cmcc.mirrors.ustc.edu.cn",
       "filter": [ "V4", "SSL", "NOSSL" ],
-      "range": [ "LINE:CMCC" ]
+      "range": [ "ISP:CMCC" ]
     },
 ```
 
