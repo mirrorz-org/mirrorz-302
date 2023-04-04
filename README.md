@@ -63,7 +63,7 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
         "AS4134",
         "AS4809",
         "REGION:AH",
-        "LINE:CHINANET"
+        "ISP:CHINANET"
       ]
     },
     {
@@ -82,24 +82,76 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
 }
 ```
 
-### Note
+### Spec
 
-* endpoint
-  - The first endpoint is the default endpoint. If all the endpoints have the same preference, we choose the first one
-  - Each endpoint has many capabilities, which is represented in `filter`.
-    + If one user requests mirrorz-302 using `https://mirrors.edu.cn`, we would redirect it to one https site; if `http://mirrors.edu.cn` then one http site. By requesting mirrorz-302 the user has indicated its minimum capability. Normally, redirecting one https user to http site is not safe and vice versa.
-    + If one user requests mirrorz-302 using IPv4, we would redirect it to one endpoint with v4 enabled (it is acceptable if v6 is also enabled); if IPv6 then one v6-enabled endpoint. By requesting mirrorz-302 the user has indicated its minimum capability. Normally, redirecting one IPv6 user to IPv4 endpoint is not safe and vice versa.
-    + Especially, **advanced** user can explicitly annouce their capability in their request like `http://ssl.mirrors.edu.cn`, then we must redirect it to a https site. Some interesting usage like `https://sjtug-nossl-wsyu-ssl-ustc-tuna.mirrors.edu.cn`, namely no preference (http and https both ok) for sjtug, use http endpoint for wsyu, and force ssl for ustc and tuna.
-    + Especially, **advanced** user can explicitly annouce their capability/preference in their request like `4.mirrors.edu.cn`, then we must redirect it to a IPv4 only site. Those with `resolve: "mirrors.example.com", filter: ["V4", "V6"]` is not acceptable for `4.mirrors.edu.cn` as the user client may resolve `mirrors.example.com` with AAAA first, but its IPv6 is broken (common case for most IPv6 enabled edge devices), we must return something like `4.mirrors.example.com`. So for each mirror site, it should add some IPv4 only and IPv6 only endpoint like tuna4 and ustc4 for this special case.
-    + Syntax sugar: By default we assume each endpoint has both http and https, hence `resolve: "mirrors.example.com", filter:["NOSSL", "SSL"]` is equivalent to `resolve: "mirrors.example.com", filter:[]`. If it has only one ability, like `resolve: "mirrors.example.com", filter:["NOSSL"]` then it can be rewritten into `resolve:"http://mirrors.example.com", filter:[]`. And to be more simple, `resolve:"http://10.10.10.10", filter: []` can be rewritten into `resolve: "10.10.10.10", filter: []` as IP endpoint usually does not have ssl enabled (if enabled, then explicitly use `resolve:"101.6.6.6", filter: ["NOSSL", "SSL"]`).
-    + Syntar sugar: By default we assume each endpoint has both A and AAAA, hence `resolve: "mirrors.example.com", filter:["V4", "V6"]` is equivalent to `resolve: "mirrors.example.com", filter:[]`. To be more simple, `resolve:"10.10.10.10", filter: [ "V4" ]` can be rewritten into `resolve: "10.10.10.10", filter: []`. Note that `resolve: "10.10.10.10", filter: ["V6"]` is invalid and the `"V6"` filter will be ignored.
-    + Partial capability: One endpoint with `filter: [ "NOSSL", "SSL", "SSL:centos" ]`, namely force SSL for one `cname` called `centos`. If one user requests with `http://mirrors.edu.cn/centos`, this endpoint would not be redirected.
-  - Private mirror site may use a private IP but declare a public range. For example, suppose USTC has a private IP range of 10.0.0.0/8, USTC mirror is located at 10.0.0.1:8080, and when one user inside USTC accesses `mirrors.edu.cn`, its IP is NATed into 202.0.0.0/24, then `mirrors.edu.cn` can resolve the request into `ustccampus` endpoint.
-  - Possible values for `range`
-    + COUNTRY: Must start with `COUNTRY`, then a colon, then ISO country code. Example: `COUNTRY:CN` or `COUNTRY:US`. Default to `CN`.
-    + REGION: Must start with `REGION`, then a colon, then province name. Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai). Default to `BJ`.
+* An endpoint in `endpoints`
+  - `label`: an unique identifier for this endpoint
+  - `resolve`: a domain name or IP address. This is directly concatenated in the final URL so a subpath may also be provided (e.g. `linux.xidian.edu.cn/mirrors` and `10.0.0.1:8080/proxy`).
+    + It should not end with slash `/` as the request path `/archlinux/iso` will be directly concatenated to it.
+  - `public`: the endpoint can be reached outside of its range. Usually `false` for campus-only mirrors.
+  - `filter`: Each endpoint has many capabilities
+    + `SSL`: HTTPS available
+    + `NOSSL`: HTTP available
+    + `V4`: IPv4 available (A record)
+    + `V6`: IPv6 available (AAAA record)
+  - `range`: when `public`, the endpoint **prefers** these ranges, other user may still use this endpoint; otherwise it **only serves** these CIDRs/LINEs (Note that GEO is not included)
+    + COUNTRY: Must start with `COUNTRY`, then a colon, then [ISO country code](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2). Example: `COUNTRY:CN` or `COUNTRY:US`. Default to `CN`.
+    + REGION: Must start with `REGION`, then a colon, then province name (GB/T 2260-2007). Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai). Default to `BJ`.
     + LINE: Must start with `LINE`, then a colon, then ISP name. Example: `LINE:CERNET` or `LINE:CHINANET`. Default to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
     + ASN (deprecated): Must start with `AS`. Example: `AS4538` and `AS13335`
     + CIDR: Example: `202.0.0.0/24` or `2001:da8::/32`
 * site/mirrors
-  - This is used by `mirrors.edu.cn` monitor, while `site` and `mirrors` in `mirrorz.json` is only used by frontend
+  - This is used by mirrorz-monitor. Defined in `mirrorz.json`.
+
+### Note
+
+#### On range when multiple endpoints
+
+```json
+    {
+      "label": "ustc",
+      "public": true,
+      "resolve": "mirrors.ustc.edu.cn",
+      "filter": [ "V4", "V6", "SSL", "NOSSL" ],
+      "range": [ " LINE:CMCC should not be included here as we already have a more specified endpoint. " ]
+    },
+    {
+      "label": "ustccmcc",
+      "public": true,
+      "resolve": "cmcc.mirrors.ustc.edu.cn",
+      "filter": [ "V4", "SSL", "NOSSL" ],
+      "range": [ "LINE:CMCC" ]
+    },
+```
+
+The first endpoint is the default endpoint. If all the endpoints have the same preference, we choose the first one.
+
+Usually, the first endpoint is a generic endpoint (e.g. `mirrors.xx.edu.cn`). To make a preference difference, if further endpoint (e.g. `mirrors4` or `cmcc.mirrors`) covers a more specfic `range`, the generic endpoint should not declare these ranges and the redirector should redirect the user to the more specific endpoint.
+
+Note that for filter, this is another story: we prefer `mirrors` over `mirrors4` (same range so same preference, then the first one), but we prefer `cmcc.mirrors` over `mirrors` (`cmcc` has a more specified range)
+
+#### On range when private endpoint
+
+```json
+    {
+      "label": "ustccampus",
+      "public": false,
+      "resolve": "10.0.0.1:8080",
+      "filter": [ "V4", "NOSSL" ],
+      "range": [ "202.0.0.0/24" ]
+    },
+```
+
+Campus-only mirror site may use a private IP but declare a public range. For example, suppose USTC has a private IP range of 10.0.0.0/8, USTC mirror is located at 10.0.0.1:8080, and when one user inside USTC accesses `mirrors.edu.cn`, its IP is NATed into 202.0.0.0/24, then `mirrors.edu.cn` can resolve the request into `ustccampus` endpoint.
+
+#### TODO
+
+**Advanced** user can explicitly annouce their capability in their request like `http://ssl.mirrors.edu.cn`, then we must redirect it to a https site. Some interesting usage like `https://sjtug-nossl-wsyu-ssl-ustc-tuna.mirrors.edu.cn`, namely no preference (http and https both ok) for sjtug, use http endpoint for wsyu, and force ssl for ustc and tuna.
+
+**Advanced** user can explicitly annouce their capability/preference in their request like `4.mirrors.edu.cn`, then we must redirect it to a IPv4 only site. Those with `resolve: "mirrors.example.com", filter: ["V4", "V6"]` is not acceptable for `4.mirrors.edu.cn` as the user client may resolve `mirrors.example.com` with AAAA first, but its IPv6 is broken (common case for most IPv6 enabled edge devices), we must return something like `4.mirrors.example.com`. So for each mirror site, it should add some IPv4 only and IPv6 only endpoint like tuna4 and ustc4 for this special case.
+
+Syntax sugar: By default we assume each endpoint has both http and https, hence `resolve: "mirrors.example.com", filter:["NOSSL", "SSL"]` is equivalent to `resolve: "mirrors.example.com", filter:[]`. If it has only one ability, like `resolve: "mirrors.example.com", filter:["NOSSL"]` then it can be rewritten into `resolve:"http://mirrors.example.com", filter:[]`. And to be more simple, `resolve:"http://10.10.10.10", filter: []` can be rewritten into `resolve: "10.10.10.10", filter: []` as IP endpoint usually does not have ssl enabled (if enabled, then explicitly use `resolve:"101.6.6.6", filter: ["NOSSL", "SSL"]`).
+
+Syntar sugar: By default we assume each endpoint has both A and AAAA, hence `resolve: "mirrors.example.com", filter:["V4", "V6"]` is equivalent to `resolve: "mirrors.example.com", filter:[]`. To be more simple, `resolve:"10.10.10.10", filter: [ "V4" ]` can be rewritten into `resolve: "10.10.10.10", filter: []`. Note that `resolve: "10.10.10.10", filter: ["V6"]` is invalid and the `"V6"` filter will be ignored.
+
+Partial capability: One endpoint with `filter: [ "NOSSL", "SSL", "SSL:centos" ]`, namely force SSL for one `cname` called `centos`. If one user requests with `http://mirrors.edu.cn/centos`, this endpoint would not be redirected.
