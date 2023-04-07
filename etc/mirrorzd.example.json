@@ -5,7 +5,7 @@
     "org": "mirrorz",
     "token": "dQw4w9WgXcQ"
   },
-  "ipasn-url": "http://localhost:8889",
+  "ipdb-file": "/dev/urandom",
   "http-bind-address": "127.0.0.1:8888",
   "mirrorz-d-directory": "mirrorz.d",
   "homepage": "mirrorz.org",

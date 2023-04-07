@@ -3,6 +3,7 @@ package logging
 import (
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/juju/loggo"
@@ -10,34 +11,47 @@ import (
 
 const DefaultWriter = "default"
 
-type Logger struct {
-	loggo.Logger
+type Logger = loggo.Logger
 
-	context  *loggo.Context
-	file     *ReopenFile
-	filename string
+var (
+	contexts sync.Map // map[string]*loggo.Context
+)
+
+func GetContext(name string) *loggo.Context {
+	if v, ok := contexts.Load(name); ok {
+		return v.(*loggo.Context)
+	}
+	c := loggo.NewContext(loggo.INFO)
+	contexts.Store(name, c)
+	return c
 }
 
-func NewLogger(filename string, level loggo.Level) *Logger {
-	l := &Logger{
-		context:  loggo.NewContext(level),
-		file:     NewReopenFile(),
-		filename: filename,
+func SetContextLevel(name string, level loggo.Level) {
+	config, err := loggo.ParseConfigString("<root>=" + level.String())
+	if err != nil {
+		panic(err)
 	}
-	l.context.AddWriter(DefaultWriter, loggo.NewSimpleWriter(l.file, LoggerFileFormatter))
-	l.Logger = l.context.GetLogger(DefaultWriter)
-	return l
+	GetContext(name).ApplyConfig(config)
+}
+
+func SetContextFile(name, filename string) error {
+	f, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR|os.O_APPEND, os.ModeAppend|0600)
+	if err != nil {
+		return err
+	}
+	c := GetContext(name)
+
+	// *os.File has a default finalizer from os.Open, so we don't need to close it
+	c.RemoveWriter(DefaultWriter)
+	c.AddWriter(DefaultWriter, loggo.NewSimpleWriter(f, LoggerFileFormatter))
+	return nil
+}
+
+func GetLogger(name string) Logger {
+	return GetContext(name).GetLogger("<root>")
 }
 
 func LoggerFileFormatter(entry loggo.Entry) string {
 	ts := entry.Timestamp.In(time.UTC).Format("2006-01-02 15:04:05")
 	return fmt.Sprintf("%s %s", ts, entry.Message)
-}
-
-func (l *Logger) Open() error {
-	return l.file.OpenFile(l.filename, os.O_CREATE|os.O_RDWR|os.O_APPEND, os.ModeAppend|0600)
-}
-
-func (l *Logger) Close() (err error) {
-	return l.file.Close()
 }
