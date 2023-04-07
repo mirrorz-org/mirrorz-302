@@ -11,6 +11,8 @@ import (
 
 const DefaultWriter = "default"
 
+type Logger = loggo.Logger
+
 var (
 	contexts sync.Map // map[string]*loggo.Context
 )
@@ -45,7 +47,7 @@ func SetContextFile(name, filename string) error {
 	return nil
 }
 
-func GetLogger(name string) loggo.Logger {
+func GetLogger(name string) Logger {
 	return GetContext(name).GetLogger("<root>")
 }
 

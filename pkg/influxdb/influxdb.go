@@ -37,15 +37,11 @@ func NewSourceFromConfig(config Config) *Source {
 	return NewSource(config.URL, config.Token, config.Org, config.Bucket)
 }
 
-// func OpenInfluxDB(url, token, org, bucket string) {
-// 	client = influxdb2.NewClient(config.InfluxDBURL, config.InfluxDBToken)
-// 	queryAPI = client.QueryAPI(config.InfluxDBOrg)
-// }
-
 func (s *Source) Close() {
 	s.client.Close()
 }
 
+// Result is the return type of Query.
 type Result = *api.QueryTableResult
 
 func (s *Source) Query(ctx context.Context, cname string) (Result, error) {

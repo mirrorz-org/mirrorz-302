@@ -2,12 +2,12 @@ package geo
 
 import "math"
 
-type geoInfo struct {
+type GeoInfo struct {
 	Name                string
 	Latitude, Longitude float64
 }
 
-var codeToInfo = map[string]geoInfo{
+var codeToInfo = map[string]GeoInfo{
 	"BJ": {"北京", 39.90403, 116.40753},
 	"TJ": {"天津", 39.1467, 117.2056},
 	"HE": {"河北", 38.0425, 114.51},
@@ -53,6 +53,7 @@ var ispCodeToName = map[string]string{
 	"UNICOM":   "联通",
 	"CSTNET":   "科技网",
 	"DRPENG":   "鹏博士",
+	"CBNET":    "广电网",
 }
 
 var ispNameToCode = make(map[string]string, len(ispCodeToName))
@@ -66,33 +67,44 @@ func init() {
 	}
 }
 
-func GetGeoInfo(code string) (geoInfo, bool) {
+// GetGeoInfo returns the GeoInfo of a given code.
+func GetGeoInfo(code string) (GeoInfo, bool) {
 	info, ok := codeToInfo[code]
 	return info, ok
 }
 
+// NameToCode looks up the code of a given location name.
+// If the name is not found, an empty string is returned.
 func NameToCode(name string) string {
 	return nameToCode[name]
 }
 
+// ISPNameToCode looks up the code of a given ISP name.
+// If the name is not found, an empty string is returned.
 func ISPNameToCode(name string) string {
 	return ispNameToCode[name]
 }
 
-// The Haversine formula, implemented following https://www.movable-type.co.uk/scripts/latlong.html
-func Haversine(Lat1, Long1, Lat2, Long2 float64) float64 {
-	const R = 6371e3 // metres
-	phi1 := Lat1 * math.Pi / 180
-	phi2 := Lat2 * math.Pi / 180
-	dPhi := (Lat2 - Lat1) * math.Pi / 180
-	dLambda := (Long2 - Long1) * math.Pi / 180
+// The radius of the Earth in metres.
+const EarthRadius = 6378.1e3
+
+// Calculate the great circle distance between two points on the Earth,
+// given their latitude and longitude in degrees.
+//
+// This is the Haversine formula implemented following https://www.movable-type.co.uk/scripts/latlong.html
+func Haversine(lat1, long1, lat2, long2 float64) float64 {
+	phi1 := lat1 * math.Pi / 180
+	phi2 := lat2 * math.Pi / 180
+	dPhi := phi2 - phi1
+	dLambda := (long2 - long1) * math.Pi / 180
 	a := math.Sin(dPhi/2)*math.Sin(dPhi/2) +
 		math.Cos(phi1)*math.Cos(phi2)*
 			math.Sin(dLambda/2)*math.Sin(dLambda/2)
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-	return R * c
+	return EarthRadius * c
 }
 
+// GeoDistance returns the distance between two geolocations in metres.
 func GeoDistance(code1, code2 string) float64 {
 	info1, ok1 := GetGeoInfo(code1)
 	info2, ok2 := GetGeoInfo(code2)

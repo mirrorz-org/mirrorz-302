@@ -2,17 +2,18 @@ package mirrorzdb
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
-	"github.com/juju/loggo"
+	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
 )
 
-var logger = loggo.GetLogger("mirrorzdb")
+var logger = logging.GetLogger("mirrorzdb")
 
 type Endpoint struct {
 	Label   string
@@ -137,7 +138,8 @@ func NewMirrorZDatabase() *MirrorZDatabase {
 func (m *MirrorZDatabase) Load(path string) (err error) {
 	files, err := os.ReadDir(path)
 	if err != nil {
-		logger.Errorf("LoadMirrorZD: cannot open mirrorz.d directory: %v\n", err)
+		err = fmt.Errorf("MirrorZDatabase.Load: os.ReadDir: %w", err)
+		logger.Errorf("%v\n", err)
 		return
 	}
 	for _, file := range files {
@@ -168,6 +170,7 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 	return
 }
 
+// Lookup returns the endpoints of the site.
 func (m *MirrorZDatabase) Lookup(abbr string) (endpoints []Endpoint, ok bool) {
 	ep, ok := m.abbrToEndpoints.Load(abbr)
 	if !ok {
@@ -177,6 +180,7 @@ func (m *MirrorZDatabase) Lookup(abbr string) (endpoints []Endpoint, ok bool) {
 	return
 }
 
+// Resolves a label to an endpoint URL.
 func (m *MirrorZDatabase) ResolveLabel(label string) (resolve string, ok bool) {
 	r, ok := m.labelToResolve.Load(label)
 	if !ok {
