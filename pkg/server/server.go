@@ -9,12 +9,12 @@ import (
 	"strings"
 
 	"github.com/juju/loggo"
-	"github.com/mirrorz-org/mirrorz-302/pkg/cacher"
+	"github.com/mirrorz-org/mirrorz-302/pkg/caching"
 	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 	"github.com/mirrorz-org/mirrorz-302/pkg/mirrorzdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
-	"github.com/mirrorz-org/mirrorz-302/pkg/trace"
+	"github.com/mirrorz-org/mirrorz-302/pkg/tracing"
 )
 
 type Config struct {
@@ -29,7 +29,7 @@ type Config struct {
 }
 
 type Server struct {
-	resolved *cacher.ResolveCache
+	resolved *caching.ResolveCache
 	mirrorzd *mirrorzdb.MirrorZDatabase
 	influx   *influxdb.Source
 	meta     *requestmeta.Parser
@@ -44,7 +44,7 @@ type Server struct {
 
 func NewServer(config Config) *Server {
 	s := &Server{
-		resolved: cacher.NewResolveCache(config.CacheTime),
+		resolved: caching.NewResolveCache(config.CacheTime),
 		mirrorzd: mirrorzdb.NewMirrorZDatabase(),
 		influx:   influxdb.NewSourceFromConfig(config.InfluxDB),
 		meta: &requestmeta.Parser{
@@ -106,8 +106,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, traceEnabled := r.URL.Query()["trace"]
-	tracer := trace.NewTracer(traceEnabled)
-	ctx := context.WithValue(r.Context(), trace.Key, tracer)
+	tracer := tracing.NewTracer(traceEnabled)
+	ctx := context.WithValue(r.Context(), tracing.Key, tracer)
 	r = r.WithContext(ctx)
 
 	url, err := s.Resolve(r, cname)

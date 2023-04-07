@@ -1,4 +1,4 @@
-package cacher
+package caching
 
 import (
 	"testing"

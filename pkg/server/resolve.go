@@ -7,16 +7,16 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mirrorz-org/mirrorz-302/pkg/cacher"
+	"github.com/mirrorz-org/mirrorz-302/pkg/caching"
 	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
 	"github.com/mirrorz-org/mirrorz-302/pkg/scoring"
-	"github.com/mirrorz-org/mirrorz-302/pkg/trace"
+	"github.com/mirrorz-org/mirrorz-302/pkg/tracing"
 )
 
 func (s *Server) Resolve(r *http.Request, cname string) (url string, err error) {
 	ctx := r.Context()
-	tracer := ctx.Value(trace.Key).(trace.Tracer)
+	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 	traceFunc := tracer.Printf
 
 	meta := s.meta.Parse(r)
@@ -82,7 +82,7 @@ func (s *Server) Resolve(r *http.Request, cname string) (url string, err error) 
 	} else {
 		url = fmt.Sprintf("%s://%s%s", meta.Scheme, resolve, repo)
 	}
-	s.resolved.Store(key, cacher.Resolved{
+	s.resolved.Store(key, caching.Resolved{
 		Url:     url,
 		Resolve: resolve,
 	})
@@ -92,7 +92,7 @@ func (s *Server) Resolve(r *http.Request, cname string) (url string, err error) 
 
 // ResolveBest tries to find the best mirror for the given request
 func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (chosenScore scoring.Score) {
-	tracer := ctx.Value(trace.Key).(trace.Tracer)
+	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 	traceFunc := tracer.Printf
 
 	var scores scoring.Scores
@@ -194,7 +194,7 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 
 // ResolveExist refreshes a stale cached result
 func (s *Server) ResolveExist(ctx context.Context, res influxdb.Result, oldResolve string) (resolve string, repo string) {
-	tracer := ctx.Value(trace.Key).(trace.Tracer)
+	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 	traceFunc := tracer.Printf
 
 outerLoop:

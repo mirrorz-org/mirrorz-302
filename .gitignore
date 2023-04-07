@@ -1,6 +1,4 @@
 /config.json
-ipasn/config.json
 *.log
 mirrorzd
-ipasn/ipasn
 mirrorzd.pid

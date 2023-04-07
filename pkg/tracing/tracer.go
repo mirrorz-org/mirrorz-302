@@ -1,4 +1,4 @@
-package trace
+package tracing
 
 import (
 	"fmt"
