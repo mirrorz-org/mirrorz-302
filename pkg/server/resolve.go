@@ -56,9 +56,12 @@ func (s *Server) Resolve(r *http.Request, cname string) (url string, err error) 
 	}
 
 	res, err := s.influx.Query(ctx, cname)
-	if err != nil {
-		s.errorLogger.Errorf("Resolve query: %v\n", err)
+	if res == nil {
+		s.errorLogger.Errorf("Resolve query failed: %v\n", err)
 		return
+	} else if err != nil {
+		s.errorLogger.Warningf("Resolve query error: %v\n", err)
+		// result available, continuing anyway
 	}
 
 	var resolve, repo string
