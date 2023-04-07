@@ -70,9 +70,12 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 	var chosenScore scoring.Score
 	if resolve == "" && repo == "" {
 		// ResolveExist failed
-		chosenScore = s.ResolveBest(ctx, res, meta)
-		resolve = chosenScore.Resolve
-		repo = chosenScore.Repo
+		scores := s.ResolveBest(ctx, res, meta)
+		if len(scores) > 0 {
+			chosenScore = scores[0]
+			resolve = chosenScore.Resolve
+			repo = chosenScore.Repo
+		}
 	}
 
 	if resolve == "" && repo == "" {
@@ -109,10 +112,8 @@ func calcDeltaCutoff(res influxdb.Result) int {
 }
 
 // ResolveBest tries to find the best mirror for the given request
-func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (chosenScore scoring.Score) {
+func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (scores scoring.Scores) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
-
-	var scores scoring.Scores
 	deltaCutoff := calcDeltaCutoff(res)
 
 	for _, item := range res {
@@ -130,6 +131,7 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 				continue
 			}
 			score := scoring.Eval(endpoint, meta)
+			score.Abbr = abbr
 			score.Delta = item.Value
 			score.Repo = item.Path
 			tracer.Printf("    score: %s\n", score)
@@ -164,7 +166,6 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 	for i, score := range scores {
 		tracer.Printf("score %d: %s\n", i, score)
 	}
-	chosenScore = scores[0]
 	return
 }
 

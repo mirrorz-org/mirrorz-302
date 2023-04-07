@@ -10,16 +10,17 @@ import (
 )
 
 type Score struct {
-	Pos   int     // pos of label, bigger = better
-	Mask  int     // longest mask
-	Geo   float64 // geographical distance
-	ISP   int     // matching ISP
-	Delta int     // often negative
+	Pos   int     `json:"pos"`   // pos of label, bigger = better
+	Mask  int     `json:"mask"`  // longest mask
+	Geo   float64 `json:"geo"`   // geographical distance
+	ISP   int     `json:"isp"`   // matching ISP
+	Delta int     `json:"delta"` // often negative
 
 	// payload
-	Label   string
-	Resolve string
-	Repo    string
+	Abbr    string `json:"abbr"`
+	Label   string `json:"label"`
+	Resolve string `json:"resolve"`
+	Repo    string `json:"repo"`
 }
 
 var zeroScore Score
