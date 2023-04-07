@@ -15,12 +15,11 @@ import (
 
 func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url string, err error) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
-	traceFunc := tracer.Printf
 
 	cname := meta.CName
-	traceFunc("Labels: %v\n", meta.Labels)
-	traceFunc("IP: %s\n", meta.IP)
-	traceFunc("Scheme: %s\n", meta.Scheme)
+	tracer.Printf("Labels: %v\n", meta.Labels)
+	tracer.Printf("IP: %s\n", meta.IP)
+	tracer.Printf("Scheme: %s\n", meta.Scheme)
 
 	logFunc := func(url string, score scoring.Score, char string) {
 		if url != "" {
@@ -30,13 +29,13 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 				char, url, meta,
 				score)
 			s.resolveLogger.Infof("%s\n", resolvedLog)
-			traceFunc("%s\n", resolvedLog)
+			tracer.Printf("%s\n", resolvedLog)
 		} else {
 			// record detail in fail log
 			s.failLogger.Debugf("%s", tracer.String())
 			failLog := fmt.Sprintf("F: %s", meta)
 			s.failLogger.Infof("%s\n", failLog)
-			traceFunc("%s\n", failLog)
+			tracer.Printf("%s\n", failLog)
 		}
 	}
 
@@ -101,129 +100,93 @@ func calcDeltaCutoff(res influxdb.Result) int {
 		squareSum += item.Value * item.Value
 		n++
 	}
+	if n == 0 {
+		return 0
+	}
 	mean := float64(sum) / float64(n)
 	stdev := math.Sqrt(float64(squareSum)/float64(n) - mean*mean)
-	return int(mean - 2*stdev)
+	return int(math.Round(mean - 2*stdev))
 }
 
 // ResolveBest tries to find the best mirror for the given request
 func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (chosenScore scoring.Score) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
-	traceFunc := tracer.Printf
 
 	var scores scoring.Scores
 	deltaCutoff := calcDeltaCutoff(res)
 
 	for _, item := range res {
 		abbr := item.Mirror
-		traceFunc("abbr: %s\n", abbr)
+		tracer.Printf("abbr: %s\n", abbr)
 		endpoints, ok := s.mirrorzd.Lookup(abbr)
 		if !ok {
 			continue
 		}
 		var scoresEndpoints scoring.Scores
 		for _, endpoint := range endpoints {
-			traceFunc("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
+			tracer.Printf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
 			if reason, ok := endpoint.Match(meta); !ok {
-				traceFunc("    %s\n", reason)
+				tracer.Printf("    %s\n", reason)
 				continue
 			}
 			score := scoring.Eval(endpoint, meta)
 			score.Delta = item.Value
 			score.Repo = item.Path
-			traceFunc("    score: %s\n", score)
+			tracer.Printf("    score: %s\n", score)
 
 			if score.Delta < deltaCutoff {
-				traceFunc("    not up-to-date enough\n")
+				tracer.Printf("    outdated\n")
 				continue
 			}
 			if !endpoint.Public && score.Mask == 0 && score.ISP == 0 {
-				traceFunc("    not hit private\n")
+				tracer.Printf("    private endpoint\n")
 				continue
 			}
 			scoresEndpoints = append(scoresEndpoints, score)
 		}
 
 		if len(scoresEndpoints) == 0 {
-			traceFunc("  no score found\n")
+			tracer.Printf("  no score available\n")
 			continue
 		}
 
-		// Find the not-dominated scores, or the first one
-		optimalScores := scoresEndpoints.OptimalsExceptDelta() // Delta all the same
-		if len(optimalScores) > 0 && len(optimalScores) != len(scoresEndpoints) {
-			for index, score := range optimalScores {
-				traceFunc("  optimal scores: %d %s\n", index, score)
-				scores = append(scores, score)
-			}
-		} else {
-			traceFunc("  first score: %s\n", scoresEndpoints[0])
-			scores = append(scores, scoresEndpoints[0])
+		for i, score := range scoresEndpoints {
+			tracer.Printf("  score %d: %s\n", i, score)
+			scores = append(scores, score)
 		}
 	}
 	if len(scores) == 0 {
+		tracer.Printf("no score available\n")
 		return
 	}
 
-	for index, score := range scores {
-		traceFunc("scores: %d %s\n", index, score)
+	scores.Sort()
+	for i, score := range scores {
+		tracer.Printf("score %d: %s\n", i, score)
 	}
-	optimalScores := scores.Optimals()
-	if len(optimalScores) == 0 {
-		s.errorLogger.Warningf("Resolve optimal scores empty, algorithm implemented wrong\n")
-		chosenScore = scores[0]
-		return
-	}
-
-	allDelta := scores.AllDelta()
-	allEqualExceptDelta := optimalScores.AllEqualExceptDelta()
-	if allEqualExceptDelta || allDelta {
-		var candidateScores scoring.Scores
-		if allDelta {
-			// Note: allDelta == true implies allEqualExceptDelta == true
-			candidateScores = scores
-		} else {
-			candidateScores = optimalScores
-		}
-		// randomly choose one mirror from the optimal half
-		// when len(optimalScores) == 1, randomHalf always succeeds
-		candidateScores.Sort()
-		chosenScore = candidateScores.RandomHalf()
-		for index, score := range candidateScores {
-			traceFunc("sorted delta scores: %d %s\n", index, score)
-		}
-	} else {
-		optimalScores.Sort()
-		chosenScore = optimalScores[0]
-		// randomly choose one mirror not dominated by others
-		//chosenScore = optimalScores.Random()
-		for index, score := range optimalScores {
-			traceFunc("optimal scores: %d %s\n", index, score)
-		}
-	}
+	chosenScore = scores[0]
 	return
 }
 
 // ResolveExist refreshes a stale cached result
 func (s *Server) ResolveExist(ctx context.Context, res influxdb.Result, oldResolve string) (resolve string, repo string) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
-	traceFunc := tracer.Printf
 
 outerLoop:
 	for _, item := range res {
 		abbr := item.Mirror
-		traceFunc("abbr: %s\n", abbr)
+		tracer.Printf("abbr: %s\n", abbr)
 		endpoints, ok := s.mirrorzd.Lookup(abbr)
 		if !ok {
 			continue
 		}
 		for _, endpoint := range endpoints {
-			traceFunc("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
+			tracer.Printf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
 
 			if oldResolve == endpoint.Resolve {
 				resolve = endpoint.Resolve
 				repo = item.Path
-				traceFunc("exist\n")
+				tracer.Printf("exist\n")
 				break outerLoop
 			}
 		}

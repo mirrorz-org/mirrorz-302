@@ -21,6 +21,8 @@ type Score struct {
 	Repo    string
 }
 
+var zeroScore Score
+
 // Less determines whether l is better than r
 //
 // In a list of best scores, Less determines if l should go before r.
@@ -60,28 +62,14 @@ func (l Score) Less(r Score) bool {
 	}
 }
 
-func (l Score) DominateExceptDelta(r Score) bool {
-	rangeDominate := l.Mask > r.Mask ||
-		(l.Mask == r.Mask && l.ISP >= r.ISP && r.ISP == 0)
-	return l.Pos >= r.Pos && rangeDominate
-}
-
-func (l Score) Dominate(r Score) bool {
-	deltaDominate := (r.Delta == 0) ||
-		(l.Delta < 0 && r.Delta < l.Delta) ||
-		(l.Delta > 0 && r.Delta > l.Delta)
-	return deltaDominate && l.DominateExceptDelta(r)
-}
-
-func (l Score) DeltaOnly() bool {
-	return l.Pos == 0 && l.Mask == 0 && l.ISP == 0
-}
-
-func (l Score) EqualExceptDelta(r Score) bool {
-	return l.Pos == r.Pos && l.Mask == r.Mask && l.ISP == r.ISP
+func (l Score) Zero() bool {
+	return l == zeroScore
 }
 
 func (l Score) String() string {
+	if l.Zero() {
+		return "<empty>"
+	}
 	geo := math.Round(l.Geo/1e4) * 10
 	geoString := fmt.Sprintf("%.fkm", geo)
 	if math.IsNaN(l.Geo) || math.IsInf(l.Geo, 0) {
@@ -110,59 +98,6 @@ func (s Scores) Swap(l, r int) { s[l], s[r] = s[r], s[l] }
 // Sort sorts the scores in place.
 func (s Scores) Sort() {
 	sort.Sort(s)
-}
-
-func (scores Scores) OptimalsExceptDelta() (optimalScores Scores) {
-	for i, l := range scores {
-		dominated := false
-		for j, r := range scores {
-			if i != j && r.DominateExceptDelta(l) {
-				dominated = true
-				break
-			}
-		}
-		if !dominated {
-			optimalScores = append(optimalScores, l)
-		}
-	}
-	return
-}
-
-func (scores Scores) Optimals() (optimalScores Scores) {
-	for i, l := range scores {
-		dominated := false
-		for j, r := range scores {
-			if i != j && r.Dominate(l) {
-				dominated = true
-				break
-			}
-		}
-		if !dominated {
-			optimalScores = append(optimalScores, l)
-		}
-	}
-	return
-}
-
-func (scores Scores) AllDelta() bool {
-	for _, s := range scores {
-		if !s.DeltaOnly() {
-			return false
-		}
-	}
-	return true
-}
-
-func (scores Scores) AllEqualExceptDelta() bool {
-	if len(scores) == 0 {
-		return true
-	}
-	for _, l := range scores {
-		if !l.EqualExceptDelta(scores[0]) {
-			return false
-		}
-	}
-	return true
 }
 
 func (scores Scores) RandomRange(r int) Score {
