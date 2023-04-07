@@ -3,6 +3,7 @@ package influxdb
 import (
 	"context"
 	"fmt"
+	"time"
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
@@ -41,8 +42,15 @@ func (s *Source) Close() {
 	s.client.Close()
 }
 
+type InfluxRow struct {
+	Value  int
+	Mirror string
+	Time   time.Time
+	Path   string
+}
+
 // Result is the return type of Query.
-type Result = *api.QueryTableResult
+type Result = []InfluxRow
 
 func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 	query := fmt.Sprintf(`from(bucket: "%s")
@@ -51,5 +59,20 @@ func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
         |> map(fn: (r) => ({_value: r._value, mirror: r.mirror, _time: r._time, path: r.url}))
         |> tail(n: 1)`, s.bucket, escape.String(cname))
 	// SQL INJECTION!!! (use read only token)
-	return s.queryAPI.Query(ctx, query)
+	res, err := s.queryAPI.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Close()
+	r := make(Result, 0)
+	for res.Next() {
+		record := res.Record()
+		r = append(r, InfluxRow{
+			Value:  int(record.Value().(int64)),
+			Mirror: record.ValueByKey("mirror").(string),
+			Time:   record.Time(),
+			Path:   record.ValueByKey("path").(string),
+		})
+	}
+	return r, res.Err()
 }

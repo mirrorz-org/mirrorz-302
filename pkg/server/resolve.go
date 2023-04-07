@@ -97,9 +97,8 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 
 	var scores scoring.Scores
 
-	for res.Next() {
-		record := res.Record()
-		abbr := record.ValueByKey("mirror").(string)
+	for _, item := range res {
+		abbr := item.Mirror
 		traceFunc("abbr: %s\n", abbr)
 		endpoints, ok := s.mirrorzd.Lookup(abbr)
 		if !ok {
@@ -113,8 +112,8 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 				continue
 			}
 			score := scoring.Eval(endpoint, meta)
-			score.Delta = int(record.Value().(int64))
-			score.Repo = record.ValueByKey("path").(string)
+			score.Delta = item.Value
+			score.Repo = item.Path
 			traceFunc("    score: %v\n", score)
 
 			//if score.Delta < -60*60*24*3 { // 3 days
@@ -144,10 +143,6 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 			traceFunc("  first score: %v\n", scoresEndpoints[0])
 			scores = append(scores, scoresEndpoints[0])
 		}
-	}
-	if err := res.Err(); err != nil {
-		s.errorLogger.Errorf("Resolve query parsing error: %v\n", err)
-		return
 	}
 	if len(scores) == 0 {
 		return
@@ -198,9 +193,8 @@ func (s *Server) ResolveExist(ctx context.Context, res influxdb.Result, oldResol
 	traceFunc := tracer.Printf
 
 outerLoop:
-	for res.Next() {
-		record := res.Record()
-		abbr := record.ValueByKey("mirror").(string)
+	for _, item := range res {
+		abbr := item.Mirror
 		traceFunc("abbr: %s\n", abbr)
 		endpoints, ok := s.mirrorzd.Lookup(abbr)
 		if !ok {
@@ -211,7 +205,7 @@ outerLoop:
 
 			if oldResolve == endpoint.Resolve {
 				resolve = endpoint.Resolve
-				repo = record.ValueByKey("path").(string)
+				repo = item.Path
 				traceFunc("exist\n")
 				break outerLoop
 			}
