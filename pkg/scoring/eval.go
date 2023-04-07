@@ -43,6 +43,7 @@ ISPOuterLoop:
 			}
 		}
 	}
+	score.Label = e.Label
 	score.Resolve = e.Resolve
 	return
 }

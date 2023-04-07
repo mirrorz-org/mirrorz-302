@@ -17,6 +17,7 @@ type Score struct {
 	Delta int     // often negative
 
 	// payload
+	Label   string
 	Resolve string
 	Repo    string
 }
@@ -75,9 +76,9 @@ func (l Score) String() string {
 	if math.IsNaN(l.Geo) || math.IsInf(l.Geo, 0) {
 		geoString = fmt.Sprintf("%+v", l.Geo)
 	}
-	return fmt.Sprintf("{%d, /%d, %s, %d, %+d, %s, %s}",
+	return fmt.Sprintf("{%d, /%d, %s, %d, %+d, %s:%s, %s}",
 		l.Pos, l.Mask, geoString, l.ISP, l.Delta,
-		l.Resolve, l.Repo)
+		l.Label, l.Resolve, l.Repo)
 }
 
 type Scores []Score
