@@ -89,7 +89,7 @@ func (l Score) EqualExceptDelta(r Score) bool {
 
 func (l Score) String() string {
 	geo := math.Round(l.Geo/1e4) * 10
-	return fmt.Sprintf("{%d, /%d, %.fkm, %d, %d", l.Pos, l.Mask, geo, l.ISP, l.Delta)
+	return fmt.Sprintf("{%d, /%d, %.fkm, %d, %+d}", l.Pos, l.Mask, geo, l.ISP, l.Delta)
 }
 
 type Scores []Score
