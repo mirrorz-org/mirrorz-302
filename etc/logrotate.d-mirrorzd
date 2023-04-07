@@ -1,7 +1,7 @@
 /var/log/mirrorzd/*.log {
     create 0640 mirrorz root
     daily
-    rotate 10
+    rotate 90
     missingok
     notifempty
     compress
