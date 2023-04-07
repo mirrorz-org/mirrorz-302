@@ -20,14 +20,12 @@ var geoDistanceDataList = []geoDistanceData{
 	{"GS", "XJ", 1624e3}, // Lanzhou - Urumqi
 }
 
-const geoDistanceTolerance = 5e3 // allow 5km error
-
 func TestGeoDistance(t *testing.T) {
 	as := assert.New(t)
 	for _, data := range geoDistanceDataList {
 		code1, code2, ref := data.Code1, data.Code2, data.Ref
 		result := GeoDistance(code1, code2)
-		as.Lessf(math.Abs(result-ref), geoDistanceTolerance,
+		as.Lessf(math.Abs(result-ref), GeoDistanceEpsilon,
 			"Distance from %s to %s should be %.f km, but got %.f km", code1, code2, ref/1e3, result/1e3)
 	}
 }

@@ -2,7 +2,10 @@ package scoring
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
+
+	"github.com/mirrorz-org/mirrorz-302/pkg/geo"
 )
 
 type Score struct {
@@ -35,7 +38,7 @@ func (l Score) Less(r Score) bool {
 	if r.ISP > 0 {
 		rGeo /= 2
 	}
-	if lGeo != rGeo {
+	if math.Abs(lGeo-rGeo) > geo.GeoDistanceEpsilon {
 		return lGeo < rGeo
 	} else if l.ISP > r.ISP {
 		// Same "effective" geo distance, prefer matching ISP

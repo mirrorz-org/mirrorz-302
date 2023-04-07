@@ -88,6 +88,9 @@ func ISPNameToCode(name string) string {
 // The radius of the Earth in metres.
 const EarthRadius = 6378.1e3
 
+// A recommended epsilon for comparing distances.
+const GeoDistanceEpsilon = 5e3 // 5 km
+
 // Calculate the great circle distance between two points on the Earth,
 // given their latitude and longitude in degrees.
 //

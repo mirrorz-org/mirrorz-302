@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
@@ -42,6 +41,7 @@ type endpointJSON struct {
 	Range   []string `json:"range"`
 }
 
+// UnmarshalJSON implements the json.Unmarshaler interface.
 func (e *Endpoint) UnmarshalJSON(data []byte) error {
 	var j endpointJSON
 	if err := json.Unmarshal(data, &j); err != nil {
@@ -94,23 +94,22 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 	remoteIPv4 := m.IP.To4() != nil
 
-	if remoteIPv4 && !e.Filter.V4 {
+	switch {
+	case remoteIPv4 && !e.Filter.V4:
 		return "not v4 endpoint", false
-	} else if !remoteIPv4 && !e.Filter.V6 {
+	case !remoteIPv4 && !e.Filter.V6:
 		return "not v6 endpoint", false
-	} else if m.Scheme == "http" && !e.Filter.NOSSL {
+	case m.Scheme == "http" && !e.Filter.NOSSL:
 		return "not nossl endpoint", false
-	}
-	if m.Scheme == "https" && !e.Filter.SSL {
+	case m.Scheme == "https" && !e.Filter.SSL:
 		return "not ssl endpoint", false
-	}
-	if m.V4Only() && !e.Filter.V4Only {
+	case m.V4Only() && !e.Filter.V4Only:
 		return "label v4only but endpoint not v4only", false
-	}
-	if m.V6Only() && !e.Filter.V6Only {
+	case m.V6Only() && !e.Filter.V6Only:
 		return "label v6only but endpoint not v6only", false
+	default:
+		return "OK", true
 	}
-	return "OK", true
 }
 
 type Site struct {
@@ -124,15 +123,15 @@ type MirrorZDFile struct {
 }
 
 type MirrorZDatabase struct {
-	// map[string]string
-	labelToResolve sync.Map
-
-	// map[string][]Endpoint
-	abbrToEndpoints sync.Map
+	labelToResolve  map[string]string
+	abbrToEndpoints map[string][]Endpoint
 }
 
 func NewMirrorZDatabase() *MirrorZDatabase {
-	return new(MirrorZDatabase)
+	return &MirrorZDatabase{
+		labelToResolve:  make(map[string]string),
+		abbrToEndpoints: make(map[string][]Endpoint),
+	}
 }
 
 func (m *MirrorZDatabase) Load(path string) (err error) {
@@ -159,33 +158,24 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		logger.Infof("%+v\n", data)
 
 		for _, e := range data.Endpoints {
-			m.labelToResolve.Store(e.Label, e.Resolve)
+			m.labelToResolve[e.Label] = e.Resolve
 		}
-		m.abbrToEndpoints.Store(data.Site.Abbr, data.Endpoints)
+		m.abbrToEndpoints[data.Site.Abbr] = data.Endpoints
 	}
-	m.labelToResolve.Range(func(label interface{}, resolve interface{}) bool {
+	for label, resolve := range m.labelToResolve {
 		logger.Infof("%s -> %s\n", label, resolve)
-		return true
-	})
+	}
 	return
 }
 
 // Lookup returns the endpoints of the site.
 func (m *MirrorZDatabase) Lookup(abbr string) (endpoints []Endpoint, ok bool) {
-	ep, ok := m.abbrToEndpoints.Load(abbr)
-	if !ok {
-		return
-	}
-	endpoints, ok = ep.([]Endpoint)
+	endpoints, ok = m.abbrToEndpoints[abbr]
 	return
 }
 
 // Resolves a label to an endpoint URL.
 func (m *MirrorZDatabase) ResolveLabel(label string) (resolve string, ok bool) {
-	r, ok := m.labelToResolve.Load(label)
-	if !ok {
-		return
-	}
-	resolve, ok = r.(string)
+	resolve, ok = m.labelToResolve[label]
 	return
 }
