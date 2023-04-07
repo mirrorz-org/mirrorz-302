@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -93,12 +94,28 @@ func (s *Server) Resolve(r *http.Request, cname string) (url string, err error) 
 	return
 }
 
+func calcDeltaCutoff(res influxdb.Result) int {
+	var sum, squareSum, n int
+	for _, item := range res {
+		if item.Value >= 0 {
+			continue
+		}
+		sum += item.Value
+		squareSum += item.Value * item.Value
+		n++
+	}
+	mean := float64(sum) / float64(n)
+	variance := float64(squareSum)/float64(n) - mean*mean
+	return int(math.Sqrt(mean - 2*variance))
+}
+
 // ResolveBest tries to find the best mirror for the given request
 func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (chosenScore scoring.Score) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 	traceFunc := tracer.Printf
 
 	var scores scoring.Scores
+	deltaCutoff := calcDeltaCutoff(res)
 
 	for _, item := range res {
 		abbr := item.Mirror
@@ -119,10 +136,10 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 			score.Repo = item.Path
 			traceFunc("    score: %v\n", score)
 
-			//if score.Delta < -60*60*24*3 { // 3 days
-			//    traceFunc("    not up-to-date enough\n")
-			//    continue
-			//}
+			if score.Delta < deltaCutoff {
+				traceFunc("    not up-to-date enough\n")
+				continue
+			}
 			if !endpoint.Public && score.Mask == 0 && score.ISP == 0 {
 				traceFunc("    not hit private\n")
 				continue
