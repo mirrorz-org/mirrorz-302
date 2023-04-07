@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/geo"
 )
@@ -66,7 +67,7 @@ func (l Score) DominateExceptDelta(r Score) bool {
 }
 
 func (l Score) Dominate(r Score) bool {
-	deltaDominate := (l.Delta == 0 && r.Delta == 0) ||
+	deltaDominate := (r.Delta == 0) ||
 		(l.Delta < 0 && r.Delta < l.Delta) ||
 		(l.Delta > 0 && r.Delta > l.Delta)
 	return deltaDominate && l.DominateExceptDelta(r)
@@ -105,6 +106,11 @@ func (s Scores) Less(l, r int) bool {
 
 // Swap swaps the elements with indexes l and r.
 func (s Scores) Swap(l, r int) { s[l], s[r] = s[r], s[l] }
+
+// Sort sorts the scores in place.
+func (s Scores) Sort() {
+	sort.Sort(s)
+}
 
 func (scores Scores) OptimalsExceptDelta() (optimalScores Scores) {
 	for i, l := range scores {

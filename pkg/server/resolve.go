@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/caching"
@@ -103,8 +102,8 @@ func calcDeltaCutoff(res influxdb.Result) int {
 		n++
 	}
 	mean := float64(sum) / float64(n)
-	variance := float64(squareSum)/float64(n) - mean*mean
-	return int(math.Sqrt(mean - 2*variance))
+	stdev := math.Sqrt(float64(squareSum)/float64(n) - mean*mean)
+	return int(mean - 2*stdev)
 }
 
 // ResolveBest tries to find the best mirror for the given request
@@ -188,13 +187,13 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 		}
 		// randomly choose one mirror from the optimal half
 		// when len(optimalScores) == 1, randomHalf always succeeds
-		sort.Sort(candidateScores)
+		candidateScores.Sort()
 		chosenScore = candidateScores.RandomHalf()
 		for index, score := range candidateScores {
 			traceFunc("sorted delta scores: %d %s\n", index, score)
 		}
 	} else {
-		sort.Sort(optimalScores)
+		optimalScores.Sort()
 		chosenScore = optimalScores[0]
 		// randomly choose one mirror not dominated by others
 		//chosenScore = optimalScores.Random()
