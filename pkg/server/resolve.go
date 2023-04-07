@@ -22,7 +22,7 @@ func (s *Server) Resolve(r *http.Request, cname string) (url string, err error) 
 
 	meta := s.meta.Parse(r)
 	traceFunc("Labels: %v\n", meta.Labels)
-	traceFunc("IP: %v\n", meta.IP)
+	traceFunc("IP: %s\n", meta.IP)
 	traceFunc("Scheme: %s\n", meta.Scheme)
 
 	logFunc := func(url string, score scoring.Score, char string) {
@@ -31,7 +31,7 @@ func (s *Server) Resolve(r *http.Request, cname string) (url string, err error) 
 			s.resolveLogger.Debugf("%s", tracer.String())
 			resolvedLog := fmt.Sprintf("%s: %s %s %s",
 				char, url, meta,
-				score.LogString())
+				score)
 			s.resolveLogger.Infof("%s\n", resolvedLog)
 			traceFunc("%s\n", resolvedLog)
 		} else {
@@ -134,7 +134,7 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 			score := scoring.Eval(endpoint, meta)
 			score.Delta = item.Value
 			score.Repo = item.Path
-			traceFunc("    score: %v\n", score)
+			traceFunc("    score: %s\n", score)
 
 			if score.Delta < deltaCutoff {
 				traceFunc("    not up-to-date enough\n")
@@ -156,11 +156,11 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 		optimalScores := scoresEndpoints.OptimalsExceptDelta() // Delta all the same
 		if len(optimalScores) > 0 && len(optimalScores) != len(scoresEndpoints) {
 			for index, score := range optimalScores {
-				traceFunc("  optimal scores: %d %v\n", index, score)
+				traceFunc("  optimal scores: %d %s\n", index, score)
 				scores = append(scores, score)
 			}
 		} else {
-			traceFunc("  first score: %v\n", scoresEndpoints[0])
+			traceFunc("  first score: %s\n", scoresEndpoints[0])
 			scores = append(scores, scoresEndpoints[0])
 		}
 	}
@@ -169,7 +169,7 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 	}
 
 	for index, score := range scores {
-		traceFunc("scores: %d %v\n", index, score)
+		traceFunc("scores: %d %s\n", index, score)
 	}
 	optimalScores := scores.Optimals()
 	if len(optimalScores) == 0 {
@@ -193,7 +193,7 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 		sort.Sort(candidateScores)
 		chosenScore = candidateScores.RandomHalf()
 		for index, score := range candidateScores {
-			traceFunc("sorted delta scores: %d %v\n", index, score)
+			traceFunc("sorted delta scores: %d %s\n", index, score)
 		}
 	} else {
 		sort.Sort(optimalScores)
@@ -201,7 +201,7 @@ func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requ
 		// randomly choose one mirror not dominated by others
 		//chosenScore = optimalScores.Random()
 		for index, score := range optimalScores {
-			traceFunc("optimal scores: %d %v\n", index, score)
+			traceFunc("optimal scores: %d %s\n", index, score)
 		}
 	}
 	return

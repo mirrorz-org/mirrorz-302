@@ -87,8 +87,9 @@ func (l Score) EqualExceptDelta(r Score) bool {
 	return l.Pos == r.Pos && l.Mask == r.Mask && l.ISP == r.ISP
 }
 
-func (l Score) LogString() string {
-	return fmt.Sprintf("%d %d %.f %d %d", l.Pos, l.Mask, l.Geo, l.ISP, l.Delta)
+func (l Score) String() string {
+	geo := math.Round(l.Geo/1e4) * 10
+	return fmt.Sprintf("{%d, /%d, %.fkm, %d, %d", l.Pos, l.Mask, geo, l.ISP, l.Delta)
 }
 
 type Scores []Score
