@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"net/http"
 	"sort"
 	"strings"
 
@@ -15,12 +14,11 @@ import (
 	"github.com/mirrorz-org/mirrorz-302/pkg/tracing"
 )
 
-func (s *Server) Resolve(r *http.Request, cname string) (url string, err error) {
-	ctx := r.Context()
+func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url string, err error) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 	traceFunc := tracer.Printf
 
-	meta := s.meta.Parse(r)
+	cname := meta.CName
 	traceFunc("Labels: %v\n", meta.Labels)
 	traceFunc("IP: %s\n", meta.IP)
 	traceFunc("Scheme: %s\n", meta.Scheme)
@@ -37,14 +35,14 @@ func (s *Server) Resolve(r *http.Request, cname string) (url string, err error) 
 		} else {
 			// record detail in fail log
 			s.failLogger.Debugf("%s", tracer.String())
-			failLog := fmt.Sprintf("F: %s %s", cname, meta)
+			failLog := fmt.Sprintf("F: %s", meta)
 			s.failLogger.Infof("%s\n", failLog)
 			traceFunc("%s\n", failLog)
 		}
 	}
 
 	// check if already resolved / cached
-	key := requestmeta.CacheKey(meta, cname)
+	key := requestmeta.CacheKey(meta)
 	keyResolved, cacheHit := s.resolved.Load(key)
 
 	// all valid, use cached result

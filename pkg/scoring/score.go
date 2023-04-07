@@ -60,22 +60,15 @@ func (l Score) Less(r Score) bool {
 }
 
 func (l Score) DominateExceptDelta(r Score) bool {
-	rangeDominate := false
-	if l.Mask > r.Mask || (l.Mask == r.Mask && l.ISP >= r.ISP && r.ISP == 0) {
-		rangeDominate = true
-	}
+	rangeDominate := l.Mask > r.Mask ||
+		(l.Mask == r.Mask && l.ISP >= r.ISP && r.ISP == 0)
 	return l.Pos >= r.Pos && rangeDominate
 }
 
 func (l Score) Dominate(r Score) bool {
-	deltaDominate := false
-	if l.Delta == 0 && r.Delta == 0 {
-		deltaDominate = true
-	} else if l.Delta < 0 && r.Delta < l.Delta {
-		deltaDominate = true
-	} else if l.Delta > 0 && r.Delta > l.Delta {
-		deltaDominate = true
-	}
+	deltaDominate := (l.Delta == 0 && r.Delta == 0) ||
+		(l.Delta < 0 && r.Delta < l.Delta) ||
+		(l.Delta > 0 && r.Delta > l.Delta)
 	return deltaDominate && l.DominateExceptDelta(r)
 }
 

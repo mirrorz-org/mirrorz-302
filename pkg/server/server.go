@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/juju/loggo"
 	"github.com/mirrorz-org/mirrorz-302/pkg/caching"
@@ -82,9 +81,6 @@ func (s *Server) LoadMirrorZD() error {
 
 // ServeHTTP implements the http.Handler interface.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Remove leading '/'
-	pathParts := strings.SplitN(r.URL.Path[1:], "/", 2)
-
 	if r.URL.Path == "/" {
 		labels := s.meta.Labels(r)
 		scheme := s.meta.Scheme(r)
@@ -99,18 +95,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cname := pathParts[0]
-	tail := ""
-	if len(pathParts) == 2 {
-		tail = "/" + pathParts[1]
-	}
-
 	_, traceEnabled := r.URL.Query()["trace"]
 	tracer := tracing.NewTracer(traceEnabled)
 	ctx := context.WithValue(r.Context(), tracing.Key, tracer)
-	r = r.WithContext(ctx)
-
-	url, err := s.Resolve(r, cname)
+	meta := s.meta.Parse(r)
+	url, err := s.Resolve(ctx, meta)
 
 	if traceEnabled {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -122,6 +111,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.URL.RawQuery != "" {
 			query = "?" + r.URL.RawQuery
 		}
-		http.Redirect(w, r, fmt.Sprintf("%s%s%s", url, tail, query), http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("%s%s%s", url, meta.Tail, query), http.StatusFound)
 	}
 }
