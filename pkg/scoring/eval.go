@@ -25,23 +25,14 @@ func Eval(e mirrorzdb.Endpoint, m requestmeta.RequestMeta) (score Score) {
 		}
 	}
 
-ISPOuterLoop:
-	for _, isp := range e.RangeISP {
-		for _, mISP := range m.ISP {
-			if isp == mISP {
-				score.ISP = 1
-				break ISPOuterLoop
-			}
+	for _, isp := range m.ISP {
+		if e.MatchISP(isp) {
+			score.ISP = 1
 		}
 	}
 
-	for _, ipnet := range e.RangeCIDR {
-		if m.IP != nil && ipnet.Contains(m.IP) {
-			mask, _ := ipnet.Mask.Size()
-			if mask > score.Mask {
-				score.Mask = mask
-			}
-		}
+	if m.IP != nil {
+		score.Mask = e.MatchIPMask(m.IP)
 	}
 	score.Label = e.Label
 	score.Resolve = e.Resolve

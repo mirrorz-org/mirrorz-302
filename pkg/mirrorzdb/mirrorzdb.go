@@ -108,9 +108,46 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 		return "label v4only but endpoint not v4only", false
 	case m.V6Only() && !e.Filter.V6Only:
 		return "label v6only but endpoint not v6only", false
+	case !e.Public && !e.MatchISPs(m.ISP) && e.MatchIPMask(m.IP) == 0:
+		return "private endpoint", false
 	default:
 		return "OK", true
 	}
+}
+
+// MatchISP reports if the given ISP is preferred by the endpoint.
+func (e *Endpoint) MatchISP(isp string) bool {
+	for _, r := range e.RangeISP {
+		if r == isp {
+			return true
+		}
+	}
+	return false
+}
+
+// MatchISPs reports if the given ISP set intersects with the endpoint's preference.
+func (e *Endpoint) MatchISPs(isps []string) bool {
+	for _, isp := range isps {
+		if e.MatchISP(isp) {
+			return true
+		}
+	}
+	return false
+}
+
+// MatchIP reports if the given IP is preferred by the endpoint.
+//
+// Returns the longest matched CIDR.
+func (e *Endpoint) MatchIPMask(ip net.IP) (longest int) {
+	for _, ipnet := range e.RangeCIDR {
+		if ipnet.Contains(ip) {
+			mask, _ := ipnet.Mask.Size()
+			if mask > longest {
+				longest = mask
+			}
+		}
+	}
+	return
 }
 
 type Site struct {

@@ -140,17 +140,12 @@ func (s *Server) resolveBestAll(ctx context.Context, meta requestmeta.RequestMet
 		for _, endpoint := range file.Endpoints {
 			tracer.Printf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
 			if reason, ok := endpoint.Match(meta); !ok {
-				tracer.Printf("    %s\n", reason)
+				tracer.Printf("    error: %s\n", reason)
 				continue
 			}
 			score := scoring.Eval(endpoint, meta)
 			score.Abbr = abbr
 			tracer.Printf("    score: %s\n", score)
-
-			if !endpoint.Public && score.Mask == 0 && score.ISP == 0 {
-				tracer.Printf("    private endpoint\n")
-				continue
-			}
 			scoresEndpoints = append(scoresEndpoints, score)
 		}
 		if len(scoresEndpoints) == 0 {
@@ -185,24 +180,18 @@ func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requ
 		var scoresEndpoints scoring.Scores
 		for _, endpoint := range endpoints {
 			tracer.Printf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
+			if item.Value < deltaCutoff {
+				tracer.Printf("    error: outdated\n")
+				continue
+			}
 			if reason, ok := endpoint.Match(meta); !ok {
-				tracer.Printf("    %s\n", reason)
+				tracer.Printf("    error: %s\n", reason)
 				continue
 			}
 			score := scoring.Eval(endpoint, meta)
-			score.Abbr = abbr
-			score.Delta = item.Value
-			score.Repo = item.Path
+			score.Abbr, score.Delta, score.Repo =
+				abbr, item.Value, item.Path
 			tracer.Printf("    score: %s\n", score)
-
-			if score.Delta < deltaCutoff {
-				tracer.Printf("    outdated\n")
-				continue
-			}
-			if !endpoint.Public && score.Mask == 0 && score.ISP == 0 {
-				tracer.Printf("    private endpoint\n")
-				continue
-			}
 			scoresEndpoints = append(scoresEndpoints, score)
 		}
 
