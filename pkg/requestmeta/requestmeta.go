@@ -21,14 +21,30 @@ type RequestMeta struct {
 	Labels []string
 }
 
+const ApiPrefix = "/api/"
+
 var parserLogger = logging.GetLogger("parser")
 
 type Parser struct {
 	DomainLength int
 }
 
+// Parse parses a regular request and returns a RequestMeta.
 func (p *Parser) Parse(r *http.Request) (meta RequestMeta) {
+	p.parseCommon(r, &meta)
 	meta.CName, meta.Tail = p.CNameAndTail(r)
+	meta.Labels = p.Labels(r)
+	return
+}
+
+// Parse parses an API request and returns a RequestMeta.
+func (p *Parser) ParseAPI(r *http.Request, prefix string) (meta RequestMeta) {
+	p.parseCommon(r, &meta)
+	meta.CName = p.CNameAPI(r, prefix)
+	return
+}
+
+func (p *Parser) parseCommon(r *http.Request, meta *RequestMeta) {
 	meta.Scheme = p.Scheme(r)
 	meta.IP = p.IP(r)
 	ipinfo, err := geo.Lookup(meta.IP.String())
@@ -42,8 +58,6 @@ func (p *Parser) Parse(r *http.Request) (meta RequestMeta) {
 			}
 		}
 	}
-	meta.Labels = p.Labels(r)
-	return
 }
 
 func (m *RequestMeta) V4Only() bool {
@@ -66,6 +80,14 @@ func (p *Parser) CNameAndTail(r *http.Request) (cname string, tail string) {
 	cname = pathParts[0]
 	if len(pathParts) == 2 {
 		tail = "/" + pathParts[1]
+	}
+	return
+}
+
+func (p *Parser) CNameAPI(r *http.Request, prefix string) (cname string) {
+	trunk, ok := strings.CutPrefix(r.URL.Path, prefix)
+	if ok && !strings.Contains(trunk, "/") {
+		return trunk
 	}
 	return
 }

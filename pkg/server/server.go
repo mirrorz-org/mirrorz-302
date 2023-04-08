@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 	"github.com/mirrorz-org/mirrorz-302/pkg/mirrorzdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
+	"github.com/mirrorz-org/mirrorz-302/pkg/scoring"
 	"github.com/mirrorz-org/mirrorz-302/pkg/tracing"
 )
 
@@ -28,18 +30,25 @@ type Config struct {
 }
 
 type Server struct {
+	// feature providers
 	resolved *caching.ResolveCache
 	mirrorzd *mirrorzdb.MirrorZDatabase
 	influx   *influxdb.Source
 	meta     *requestmeta.Parser
 
+	// saved config
 	logDir      string
 	mirrorzdDir string
+	homepage    string
 
+	// http muxes
+	handler, apiHandler http.Handler
+
+	// loggers
 	resolveLogger, failLogger, errorLogger loggo.Logger
-
-	Homepage string
 }
+
+const ApiPrefix = requestmeta.ApiPrefix
 
 func NewServer(config Config) *Server {
 	s := &Server{
@@ -57,8 +66,9 @@ func NewServer(config Config) *Server {
 		failLogger:    logging.GetLogger("fail"),
 		errorLogger:   logging.GetLogger("error"),
 
-		Homepage: config.Homepage,
+		homepage: config.Homepage,
 	}
+	s.buildHandlers()
 	return s
 }
 
@@ -79,8 +89,24 @@ func (s *Server) LoadMirrorZD() error {
 	return s.mirrorzd.Load(s.mirrorzdDir)
 }
 
+func (s *Server) buildHandlers() {
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc(ApiPrefix+"scoring/", s.handleScoringAPI)
+	s.apiHandler = apiMux
+
+	mainMux := http.NewServeMux()
+	mainMux.HandleFunc("/", s.handleRedirect)
+	mainMux.Handle(ApiPrefix, apiMux)
+	s.handler = mainMux
+}
+
 // ServeHTTP implements the http.Handler interface.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.handler.ServeHTTP(w, r)
+}
+
+// handleRedirect handles a regular mirrorz-302 request.
+func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		labels := s.meta.Labels(r)
 		scheme := s.meta.Scheme(r)
@@ -91,7 +117,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, s.Homepage), http.StatusFound)
+		http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, s.homepage), http.StatusFound)
 		return
 	}
 
@@ -112,5 +138,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			query = "?" + r.URL.RawQuery
 		}
 		http.Redirect(w, r, fmt.Sprintf("%s%s%s", url, meta.Tail, query), http.StatusFound)
+	}
+}
+
+type ScoringAPIResponse struct {
+	Scores scoring.Scores `json:"scores"`
+}
+
+func (s *Server) handleScoringAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	resp := new(ScoringAPIResponse)
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.errorLogger.Errorf("Error encoding response: %v", err)
 	}
 }
