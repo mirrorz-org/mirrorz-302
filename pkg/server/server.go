@@ -146,8 +146,23 @@ type ScoringAPIResponse struct {
 }
 
 func (s *Server) handleScoringAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, fmt.Sprintf("Method %s is not supported", r.Method), http.StatusMethodNotAllowed)
+		return
+	}
+	prefix := ApiPrefix + "scoring/"
+	meta := s.meta.ParseAPI(r, prefix)
+
+	if meta.CName == "" {
+		// TODO: Handle generic scoring
+		http.Error(w, "Missing CNAME parameter", http.StatusBadRequest)
+		return
+	}
+	scores := s.ResolveBest(r.Context(), meta)
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	resp := new(ScoringAPIResponse)
+	resp.Scores = scores
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.errorLogger.Errorf("Error encoding response: %v", err)

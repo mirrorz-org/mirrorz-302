@@ -13,6 +13,18 @@ import (
 	"github.com/mirrorz-org/mirrorz-302/pkg/tracing"
 )
 
+func (s *Server) queryInflux(ctx context.Context, cname string) (res influxdb.Result, ok bool) {
+	res, err := s.influx.Query(ctx, cname)
+	if res == nil {
+		s.errorLogger.Errorf("Resolve query failed: %v\n", err)
+		return res, false
+	} else if err != nil {
+		s.errorLogger.Warningf("Resolve query error: %v\n", err)
+		// result available, continuing anyway
+	}
+	return res, true
+}
+
 func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url string, err error) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 
@@ -52,13 +64,9 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 		return
 	}
 
-	res, err := s.influx.Query(ctx, cname)
-	if res == nil {
-		s.errorLogger.Errorf("Resolve query failed: %v\n", err)
+	res, ok := s.queryInflux(ctx, cname)
+	if !ok {
 		return
-	} else if err != nil {
-		s.errorLogger.Warningf("Resolve query error: %v\n", err)
-		// result available, continuing anyway
 	}
 
 	var resolve, repo string
@@ -70,7 +78,7 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 	var chosenScore scoring.Score
 	if resolve == "" && repo == "" {
 		// ResolveExist failed
-		scores := s.ResolveBest(ctx, res, meta)
+		scores := s.resolveBest(ctx, res, meta)
 		if len(scores) > 0 {
 			chosenScore = scores[0]
 			resolve = chosenScore.Resolve
@@ -112,7 +120,15 @@ func calcDeltaCutoff(res influxdb.Result) int {
 }
 
 // ResolveBest tries to find the best mirror for the given request
-func (s *Server) ResolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (scores scoring.Scores) {
+func (s *Server) ResolveBest(ctx context.Context, meta requestmeta.RequestMeta) (scores scoring.Scores) {
+	res, ok := s.queryInflux(ctx, meta.CName)
+	if !ok {
+		return
+	}
+	return s.resolveBest(ctx, res, meta)
+}
+
+func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (scores scoring.Scores) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 	deltaCutoff := calcDeltaCutoff(res)
 
