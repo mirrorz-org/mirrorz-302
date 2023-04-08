@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
@@ -123,15 +124,14 @@ type MirrorZDFile struct {
 }
 
 type MirrorZDatabase struct {
-	labelToResolve  map[string]string
-	abbrToEndpoints map[string][]Endpoint
+	mu       sync.RWMutex
+	files    []MirrorZDFile
+	labelMap map[string]string
+	abbrMap  map[string]*MirrorZDFile
 }
 
 func NewMirrorZDatabase() *MirrorZDatabase {
-	return &MirrorZDatabase{
-		labelToResolve:  make(map[string]string),
-		abbrToEndpoints: make(map[string][]Endpoint),
-	}
+	return new(MirrorZDatabase)
 }
 
 func (m *MirrorZDatabase) Load(path string) (err error) {
@@ -141,6 +141,11 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		logger.Errorf("%v\n", err)
 		return
 	}
+
+	newFiles := make([]MirrorZDFile, 0, len(files))
+	newLabelMap := make(map[string]string)
+	newAbbrMap := make(map[string]*MirrorZDFile)
+
 	for _, file := range files {
 		if !strings.HasSuffix(file.Name(), ".json") {
 			continue
@@ -156,26 +161,48 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 			continue
 		}
 		logger.Infof("%+v\n", data)
+		idx := len(newFiles)
+		newFiles = append(newFiles, data)
+		newAbbrMap[data.Site.Abbr] = &newFiles[idx]
 
 		for _, e := range data.Endpoints {
-			m.labelToResolve[e.Label] = e.Resolve
+			newLabelMap[e.Label] = e.Resolve
 		}
-		m.abbrToEndpoints[data.Site.Abbr] = data.Endpoints
 	}
-	for label, resolve := range m.labelToResolve {
+	for label, resolve := range newLabelMap {
 		logger.Infof("%s -> %s\n", label, resolve)
 	}
+	m.mu.Lock()
+	m.files = newFiles
+	m.labelMap = newLabelMap
+	m.abbrMap = newAbbrMap
+	m.mu.Unlock()
 	return
+}
+
+// Files returns all files in the database.
+//
+// The returned slice must not be modified.
+func (m *MirrorZDatabase) Files() []MirrorZDFile {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.files
 }
 
 // Lookup returns the endpoints of the site.
 func (m *MirrorZDatabase) Lookup(abbr string) (endpoints []Endpoint, ok bool) {
-	endpoints, ok = m.abbrToEndpoints[abbr]
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if s, ok := m.abbrMap[abbr]; ok {
+		return s.Endpoints, true
+	}
 	return
 }
 
 // Resolves a label to an endpoint URL.
 func (m *MirrorZDatabase) ResolveLabel(label string) (resolve string, ok bool) {
-	resolve, ok = m.labelToResolve[label]
+	m.mu.RLock()
+	resolve, ok = m.labelMap[label]
+	m.mu.RUnlock()
 	return
 }

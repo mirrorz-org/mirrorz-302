@@ -121,6 +121,9 @@ func calcDeltaCutoff(res influxdb.Result) int {
 
 // ResolveBest tries to find the best mirror for the given request
 func (s *Server) ResolveBest(ctx context.Context, meta requestmeta.RequestMeta) (scores scoring.Scores) {
+	if meta.CName == "" {
+		return s.resolveBestAll(ctx, meta)
+	}
 	res, ok := s.queryInflux(ctx, meta.CName)
 	if !ok {
 		return
@@ -128,6 +131,46 @@ func (s *Server) ResolveBest(ctx context.Context, meta requestmeta.RequestMeta) 
 	return s.resolveBest(ctx, res, meta)
 }
 
+func (s *Server) resolveBestAll(ctx context.Context, meta requestmeta.RequestMeta) (scores scoring.Scores) {
+	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
+	for _, file := range s.mirrorzd.Files() {
+		abbr := file.Site.Abbr
+		tracer.Printf("abbr: %s\n", abbr)
+		var scoresEndpoints scoring.Scores
+		for _, endpoint := range file.Endpoints {
+			tracer.Printf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
+			if reason, ok := endpoint.Match(meta); !ok {
+				tracer.Printf("    %s\n", reason)
+				continue
+			}
+			score := scoring.Eval(endpoint, meta)
+			score.Abbr = abbr
+			tracer.Printf("    score: %s\n", score)
+
+			if !endpoint.Public && score.Mask == 0 && score.ISP == 0 {
+				tracer.Printf("    private endpoint\n")
+				continue
+			}
+			scoresEndpoints = append(scoresEndpoints, score)
+		}
+		if len(scoresEndpoints) == 0 {
+			continue
+		}
+		scoresEndpoints.Sort()
+		scores = append(scores, scoresEndpoints[0])
+	}
+	if len(scores) == 0 {
+		tracer.Printf("no score available\n")
+		return
+	}
+	scores.Sort()
+	for i, score := range scores {
+		tracer.Printf("score %d: %s\n", i, score)
+	}
+	return
+}
+
+// Resolves the best mirror for the given request. CName must be present in meta.
 func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (scores scoring.Scores) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 	deltaCutoff := calcDeltaCutoff(res)

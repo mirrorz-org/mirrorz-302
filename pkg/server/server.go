@@ -152,12 +152,6 @@ func (s *Server) handleScoringAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	prefix := ApiPrefix + "scoring/"
 	meta := s.meta.ParseAPI(r, prefix)
-
-	if meta.CName == "" {
-		// TODO: Handle generic scoring
-		http.Error(w, "Missing CNAME parameter", http.StatusBadRequest)
-		return
-	}
 	scores := s.ResolveBest(r.Context(), meta)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
