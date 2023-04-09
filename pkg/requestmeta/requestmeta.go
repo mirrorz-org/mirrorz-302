@@ -68,7 +68,6 @@ func (m *RequestMeta) String() string {
 }
 
 func (p *Parser) CNameAndTail(r *http.Request) (cname string, tail string) {
-	// Remove leading '/'
 	pathParts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
 	cname = pathParts[0]
 	if len(pathParts) == 2 {

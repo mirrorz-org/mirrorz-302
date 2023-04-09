@@ -75,7 +75,7 @@ func (l Score) String() string {
 	if l.Zero() {
 		return "<empty>"
 	}
-	geo := math.Round(l.Geo/1e4) * 10
+	geo := truncateGeo(l.Geo)
 	geoString := fmt.Sprintf("%.fkm", geo)
 	if math.IsNaN(l.Geo) || math.IsInf(l.Geo, 0) {
 		geoString = fmt.Sprintf("%+v", l.Geo)
@@ -95,9 +95,13 @@ func (l Score) MarshalJSON() ([]byte, error) {
 	if math.IsInf(l.Geo, 0) {
 		l.Geo = JSONInfReplacement
 	} else {
-		l.Geo = math.Round(l.Geo/1e4) * 10
+		l.Geo = truncateGeo(l.Geo)
 	}
 	return json.Marshal(scoreJSON{scoreA(l)})
+}
+
+func truncateGeo(geo float64) float64 {
+	return math.Round(geo/1e4) * 10
 }
 
 type Scores []Score
