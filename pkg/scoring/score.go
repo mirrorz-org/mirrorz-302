@@ -94,6 +94,8 @@ type scoreJSON struct{ scoreA }
 func (l Score) MarshalJSON() ([]byte, error) {
 	if math.IsInf(l.Geo, 0) {
 		l.Geo = JSONInfReplacement
+	} else {
+		l.Geo = math.Round(l.Geo/1e4) * 10
 	}
 	return json.Marshal(scoreJSON{scoreA(l)})
 }

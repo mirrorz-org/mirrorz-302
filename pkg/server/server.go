@@ -91,7 +91,9 @@ func (s *Server) LoadMirrorZD() error {
 
 func (s *Server) buildHandlers() {
 	apiMux := http.NewServeMux()
-	apiMux.HandleFunc(ApiPrefix+"scoring/", s.handleScoringAPI)
+	prefix := ApiPrefix + "scoring"
+	apiMux.Handle(prefix, http.StripPrefix(prefix, http.HandlerFunc(s.handleScoringAPI)))
+	apiMux.Handle(prefix+"/", http.StripPrefix(prefix, http.HandlerFunc(s.handleScoringAPI)))
 	s.apiHandler = apiMux
 
 	mainMux := http.NewServeMux()
@@ -150,8 +152,7 @@ func (s *Server) handleScoringAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Method %s is not supported", r.Method), http.StatusMethodNotAllowed)
 		return
 	}
-	prefix := ApiPrefix + "scoring/"
-	meta := s.meta.ParseAPI(r, prefix)
+	meta := s.meta.Parse(r)
 
 	ctx := context.WithValue(r.Context(), tracing.Key, tracing.NewTracer(false))
 	scores := s.ResolveBest(ctx, meta)

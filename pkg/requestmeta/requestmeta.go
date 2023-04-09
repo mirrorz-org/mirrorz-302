@@ -37,13 +37,6 @@ func (p *Parser) Parse(r *http.Request) (meta RequestMeta) {
 	return
 }
 
-// Parse parses an API request and returns a RequestMeta.
-func (p *Parser) ParseAPI(r *http.Request, prefix string) (meta RequestMeta) {
-	p.parseCommon(r, &meta)
-	meta.CName = p.CNameAPI(r, prefix)
-	return
-}
-
 func (p *Parser) parseCommon(r *http.Request, meta *RequestMeta) {
 	meta.Scheme = p.Scheme(r)
 	meta.IP = p.IP(r)
@@ -76,18 +69,10 @@ func (m *RequestMeta) String() string {
 
 func (p *Parser) CNameAndTail(r *http.Request) (cname string, tail string) {
 	// Remove leading '/'
-	pathParts := strings.SplitN(r.URL.Path[1:], "/", 2)
+	pathParts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
 	cname = pathParts[0]
 	if len(pathParts) == 2 {
 		tail = "/" + pathParts[1]
-	}
-	return
-}
-
-func (p *Parser) CNameAPI(r *http.Request, prefix string) (cname string) {
-	trunk, ok := strings.CutPrefix(r.URL.Path, prefix)
-	if ok && !strings.Contains(trunk, "/") {
-		return trunk
 	}
 	return
 }
