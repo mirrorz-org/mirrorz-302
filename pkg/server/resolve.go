@@ -78,7 +78,7 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 	var chosenScore scoring.Score
 	if resolve == "" && repo == "" {
 		// ResolveExist failed
-		scores := s.resolveBest(ctx, res, meta)
+		scores := s.resolveBest(ctx, res, meta, 0)
 		if len(scores) > 0 {
 			chosenScore = scores[0]
 			resolve = chosenScore.Resolve
@@ -128,45 +128,20 @@ func (s *Server) ResolveBest(ctx context.Context, meta requestmeta.RequestMeta) 
 	if !ok {
 		return
 	}
-	return s.resolveBest(ctx, res, meta)
+	return s.resolveBest(ctx, res, meta, 0)
 }
 
 func (s *Server) resolveBestAll(ctx context.Context, meta requestmeta.RequestMeta) (scores scoring.Scores) {
-	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
+	res := make(influxdb.Result, 0)
 	for _, file := range s.mirrorzd.Files() {
 		abbr := file.Site.Abbr
-		tracer.Printf("abbr: %s\n", abbr)
-		var scoresEndpoints scoring.Scores
-		for _, endpoint := range file.Endpoints {
-			tracer.Printf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
-			if reason, ok := endpoint.Match(meta); !ok {
-				tracer.Printf("    error: %s\n", reason)
-				continue
-			}
-			score := scoring.Eval(endpoint, meta)
-			score.Abbr = abbr
-			tracer.Printf("    score: %s\n", score)
-			scoresEndpoints = append(scoresEndpoints, score)
-		}
-		if len(scoresEndpoints) == 0 {
-			continue
-		}
-		scoresEndpoints.Sort()
-		scores = append(scores, scoresEndpoints[0])
+		res = append(res, influxdb.Item{Mirror: abbr})
 	}
-	if len(scores) == 0 {
-		tracer.Printf("no score available\n")
-		return
-	}
-	scores.Sort()
-	for i, score := range scores {
-		tracer.Printf("score %d: %s\n", i, score)
-	}
-	return
+	return s.resolveBest(ctx, res, meta, 1)
 }
 
-// Resolves the best mirror for the given request. CName must be present in meta.
-func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta) (scores scoring.Scores) {
+// Resolves the best mirror for the given request.
+func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta, mode int) (scores scoring.Scores) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 	deltaCutoff := calcDeltaCutoff(res)
 
@@ -200,9 +175,13 @@ func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requ
 			continue
 		}
 
+		scoresEndpoints.Sort()
 		for i, score := range scoresEndpoints {
 			tracer.Printf("  score %d: %s\n", i, score)
-			scores = append(scores, score)
+			// when mode == 1, keep only the best score per endpoint
+			if mode != 1 || i == 0 {
+				scores = append(scores, score)
+			}
 		}
 	}
 	if len(scores) == 0 {

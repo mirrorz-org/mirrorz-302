@@ -42,7 +42,7 @@ func (s *Source) Close() {
 	s.client.Close()
 }
 
-type InfluxRow struct {
+type Item struct {
 	Value  int
 	Mirror string
 	Time   time.Time
@@ -50,7 +50,7 @@ type InfluxRow struct {
 }
 
 // Result is the return type of Query.
-type Result = []InfluxRow
+type Result = []Item
 
 func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 	query := fmt.Sprintf(`from(bucket: "%s")
@@ -67,7 +67,7 @@ func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 	r := make(Result, 0)
 	for res.Next() {
 		record := res.Record()
-		r = append(r, InfluxRow{
+		r = append(r, Item{
 			Value:  int(record.Value().(int64)),
 			Mirror: record.ValueByKey("mirror").(string),
 			Time:   record.Time(),
