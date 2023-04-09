@@ -14,15 +14,15 @@ In 302-js, users are just redirected to a mirror site with the most up-to-date i
 
 # 302-go: Nearest
 
-In 302-go, users are redirected to a mirror site based on its IP, ASN, etc. Detailed concern is discussed below
+In 302-go, users are redirected to a mirror site based on their IP, ISP, geolocation etc. Detailed concern is discussed below.
 
 ## design concern
 
 * user
   - AS: Interconnect within one AS is usually better than across AS
-  - IP: From the perspective of CERNET/CERNET2 and universities, mirror site can fine-tune based on IP range
-  - GEO: As this project is limited to .edu.cn mirror sites, geographically nearest not necessarily implies nearest in network. Hence this project does not take GEO into concern currently. Also GeoIP data is hard to acquire and maintain, this feature may be added in the future.
-  - advanced users may manually assign a preference list, e.g. `tuna-ustccampus.mirrors.edu.cn`
+  - IP: From the perspective of CERNET/CERNET2 and universities, mirror sites can fine-tune based on IP range
+  - GEO: As this project is limited to .edu.cn mirror sites, geographical proximity does not necessarily imply fast network connection.
+  - advanced users may manually specify a preference list, e.g. `tuna-ustccampus.mirrors.edu.cn`
 * mirror site
   - endpoint: multiple upstreams (CERNET, CMNET, etc), ipv4/ipv6 only endpoint, and default endpoint
   - range: users inside this range should better be redirected to this mirror site
@@ -85,7 +85,7 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
 ### Spec
 
 * An endpoint in `endpoints`
-  - `label`: an unique identifier for this endpoint
+  - `label`: a unique identifier for this endpoint
   - `resolve`: a domain name or IP address. This is directly concatenated in the final URL so a subpath may also be provided (e.g. `linux.xidian.edu.cn/mirrors` and `10.0.0.1:8080/proxy`).
     + It should not end with slash `/` as the request path `/archlinux/iso` will be directly concatenated to it.
   - `public`: the endpoint can be reached outside of its range. Usually `false` for campus-only mirrors.
@@ -95,9 +95,9 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
     + `V4`: IPv4 available (A record)
     + `V6`: IPv6 available (AAAA record)
   - `range`: when `public`, the endpoint **prefers** these ranges, other user may still use this endpoint; otherwise it **only serves** these CIDRs/ISPs (Note that GEO is not included)
-    + COUNTRY: Must start with `COUNTRY`, then a colon, then [ISO country code](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2). Example: `COUNTRY:CN` or `COUNTRY:US`. Default to `CN`.
-    + REGION: Must start with `REGION`, then a colon, then province name (GB/T 2260-2007). Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai). Default to `BJ`.
-    + ISP: Must start with `ISP`, then a colon, then ISP name. Example: `ISP:CERNET` or `ISP:CHINANET`. Default to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
+    + COUNTRY: Must start with `COUNTRY`, then a colon, then [ISO country code](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2). Example: `COUNTRY:CN` or `COUNTRY:US`. Defaults to `CN`.
+    + REGION: Must start with `REGION`, then a colon, then province name (GB/T 2260-2007). Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai). Defaults to `BJ`.
+    + ISP: Must start with `ISP`, then a colon, then ISP name. Example: `ISP:CERNET` or `ISP:CHINANET`. Defaults to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
     + ASN (deprecated): Must start with `AS`. Example: `AS4538` and `AS13335`
     + CIDR: Example: `202.0.0.0/24` or `2001:da8::/32`
 * site/mirrors
