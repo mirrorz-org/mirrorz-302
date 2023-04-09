@@ -101,7 +101,7 @@ func (l Score) MarshalJSON() ([]byte, error) {
 }
 
 func truncateGeo(geo float64) float64 {
-	return math.Round(geo/1e4) * 10
+	return math.Round(geo/10) * 10
 }
 
 type Scores []Score

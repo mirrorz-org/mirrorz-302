@@ -85,11 +85,11 @@ func ISPNameToCode(name string) string {
 	return ispNameToCode[name]
 }
 
-// The radius of the Earth in metres.
-const EarthRadius = 6378.1e3
+// The radius of the Earth in kilometres.
+const EarthRadius = 6378.1
 
 // A recommended epsilon for comparing distances.
-const GeoDistanceEpsilon = 5e3 // 5 km
+const GeoDistanceEpsilon = 5.0 // km
 
 // Calculate the great circle distance between two points on the Earth,
 // given their latitude and longitude in degrees.
@@ -107,7 +107,7 @@ func Haversine(lat1, long1, lat2, long2 float64) float64 {
 	return EarthRadius * c
 }
 
-// GeoDistance returns the distance between two geolocations in metres.
+// GeoDistance returns the distance between two geolocations in kilometres.
 func GeoDistance(code1, code2 string) float64 {
 	info1, ok1 := GetGeoInfo(code1)
 	info2, ok2 := GetGeoInfo(code2)

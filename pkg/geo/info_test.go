@@ -13,11 +13,11 @@ type geoDistanceData struct {
 }
 
 var geoDistanceDataList = []geoDistanceData{
-	{"BJ", "SH", 1066e3}, // Beijing - Shanghai
-	{"BJ", "HK", 1966e3}, // Beijing - Hong Kong
-	{"SH", "SN", 1219e3}, // Shanghai - Xi'an
-	{"HB", "XZ", 2227e3}, // Wuhan - Lhasa
-	{"GS", "XJ", 1624e3}, // Lanzhou - Urumqi
+	{"BJ", "SH", 1066}, // Beijing - Shanghai
+	{"BJ", "HK", 1966}, // Beijing - Hong Kong
+	{"SH", "SN", 1219}, // Shanghai - Xi'an
+	{"HB", "XZ", 2227}, // Wuhan - Lhasa
+	{"GS", "XJ", 1624}, // Lanzhou - Urumqi
 }
 
 func TestGeoDistance(t *testing.T) {
@@ -26,6 +26,6 @@ func TestGeoDistance(t *testing.T) {
 		code1, code2, ref := data.Code1, data.Code2, data.Ref
 		result := GeoDistance(code1, code2)
 		as.Lessf(math.Abs(result-ref), GeoDistanceEpsilon,
-			"Distance from %s to %s should be %.f km, but got %.f km", code1, code2, ref/1e3, result/1e3)
+			"Distance from %s to %s should be %.f km, but got %.f km", code1, code2, ref, result)
 	}
 }
