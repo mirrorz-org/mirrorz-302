@@ -1,6 +1,7 @@
 package scoring
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/geo"
 )
+
+const JSONInfReplacement = 1e100
 
 type Score struct {
 	Pos   int     `json:"pos"`   // pos of label, bigger = better
@@ -80,6 +83,19 @@ func (l Score) String() string {
 	return fmt.Sprintf("{%d, /%d, %s, %d, %+d, %s:%s, %s}",
 		l.Pos, l.Mask, geoString, l.ISP, l.Delta,
 		l.Label, l.Resolve, l.Repo)
+}
+
+// MarshalJSON helper types.
+// http://choly.ca/post/go-json-marshalling/
+type scoreA Score
+type scoreJSON struct{ scoreA }
+
+// MarshalJSON implements the json.Marshaler interface.
+func (l Score) MarshalJSON() ([]byte, error) {
+	if math.IsInf(l.Geo, 0) {
+		l.Geo = JSONInfReplacement
+	}
+	return json.Marshal(scoreJSON{scoreA(l)})
 }
 
 type Scores []Score

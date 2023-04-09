@@ -152,11 +152,12 @@ func (s *Server) handleScoringAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	prefix := ApiPrefix + "scoring/"
 	meta := s.meta.ParseAPI(r, prefix)
-	scores := s.ResolveBest(r.Context(), meta)
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	resp := new(ScoringAPIResponse)
-	resp.Scores = scores
+	ctx := context.WithValue(r.Context(), tracing.Key, tracing.NewTracer(false))
+	scores := s.ResolveBest(ctx, meta)
+	resp := &ScoringAPIResponse{Scores: scores}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.errorLogger.Errorf("Error encoding response: %v", err)
