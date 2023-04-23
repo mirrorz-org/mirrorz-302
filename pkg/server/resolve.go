@@ -53,10 +53,10 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 
 	// check if already resolved / cached
 	key := requestmeta.CacheKey(meta)
-	keyResolved, cacheHit := s.resolved.Load(key)
+	keyResolved, cacheStatus := s.resolved.Load(key)
 
 	// all valid, use cached result
-	if cacheHit && s.resolved.IsFresh(keyResolved) {
+	if cacheStatus == caching.StatusFresh {
 		// update timestamp
 		s.resolved.Store(key, keyResolved)
 		url = keyResolved.Url
@@ -71,7 +71,7 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 
 	var resolve, repo string
 
-	if cacheHit && s.resolved.IsStale(keyResolved) {
+	if cacheStatus == caching.StatusStale {
 		resolve, repo = s.ResolveExist(ctx, res, keyResolved.Resolve)
 	}
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/juju/loggo"
 	"github.com/mirrorz-org/mirrorz-302/pkg/caching"
@@ -52,7 +53,7 @@ const ApiPrefix = requestmeta.ApiPrefix
 
 func NewServer(config Config) *Server {
 	s := &Server{
-		resolved: caching.NewResolveCache(config.CacheTime),
+		resolved: caching.NewResolveCache(time.Duration(config.CacheTime) * time.Second),
 		mirrorzd: mirrorzdb.NewMirrorZDatabase(),
 		influx:   influxdb.NewSourceFromConfig(config.InfluxDB),
 		meta: &requestmeta.Parser{

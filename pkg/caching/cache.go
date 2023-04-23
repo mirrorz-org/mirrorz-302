@@ -9,6 +9,15 @@ import (
 
 var cacheGCLogger = logging.GetLogger("gc")
 
+type Status int
+
+const (
+	StatusNone Status = iota
+	StatusFresh
+	StatusStale
+	StatusExpired
+)
+
 // IP, label to start, last timestamp, url
 type Resolved struct {
 	start time.Time // time of last write
@@ -24,26 +33,24 @@ type ResolveCache struct {
 	ttl time.Duration
 }
 
-func NewResolveCache(ttlSeconds int) *ResolveCache {
-	return &ResolveCache{ttl: time.Duration(ttlSeconds) * time.Second}
+func NewResolveCache(ttl time.Duration) *ResolveCache {
+	return &ResolveCache{ttl: ttl}
 }
 
-func (c *ResolveCache) Load(key string) (Resolved, bool) {
+func (c *ResolveCache) Load(key string) (Resolved, Status) {
+	cur := time.Now()
 	v, ok := c.Map.Load(key)
 	if !ok {
-		return Resolved{}, false
+		return Resolved{}, StatusNone
 	}
-	return v.(Resolved), true
-}
-
-func (c *ResolveCache) IsFresh(v Resolved) bool {
-	cur := time.Now()
-	return cur.Sub(v.last) < c.ttl && cur.Sub(v.start) < c.ttl
-}
-
-func (c *ResolveCache) IsStale(v Resolved) bool {
-	cur := time.Now()
-	return cur.Sub(v.last) < c.ttl && cur.Sub(v.start) >= c.ttl
+	r := v.(Resolved)
+	if cur.Sub(r.last) >= c.ttl {
+		return r, StatusExpired
+	}
+	if cur.Sub(r.start) >= c.ttl {
+		return r, StatusStale
+	}
+	return r, StatusFresh
 }
 
 func (c *ResolveCache) Store(key string, value Resolved) {
@@ -60,8 +67,8 @@ func (c *ResolveCache) Delete(key string) {
 }
 
 func (c *ResolveCache) Touch(key string) {
-	r, ok := c.Load(key)
-	if !ok {
+	r, status := c.Load(key)
+	if status != StatusFresh && status != StatusStale {
 		return
 	}
 	c.Store(key, r)
@@ -69,7 +76,7 @@ func (c *ResolveCache) Touch(key string) {
 
 func (c *ResolveCache) GC(cur time.Time) {
 	cacheGCLogger.Infof("Resolved GC start at %s\n", cur)
-	c.Map.Range(func(k interface{}, v interface{}) bool {
+	c.Map.Range(func(k, v any) bool {
 		r, ok := v.(Resolved)
 		if !ok {
 			c.Map.Delete(k)
@@ -96,7 +103,7 @@ func (c *ResolveCache) StartGCTicker() {
 }
 
 func (c *ResolveCache) Clear() {
-	c.Map.Range(func(k interface{}, v interface{}) bool {
+	c.Map.Range(func(k, v any) bool {
 		c.Map.Delete(k)
 		return true
 	})

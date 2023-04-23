@@ -14,7 +14,7 @@ func TestScoreString(t *testing.T) {
 	s := Score{
 		Pos:     1,
 		Mask:    2,
-		Geo:     3456000, // metres
+		Geo:     3456, // kilometres
 		ISP:     7,
 		Delta:   8,
 		Label:   "foo",
@@ -37,7 +37,7 @@ func TestScoresJSON(t *testing.T) {
 	s := Score{
 		Pos:     1,
 		Mask:    2,
-		Geo:     3456000, // metres
+		Geo:     3456, // kilometres
 		ISP:     7,
 		Delta:   8,
 		Label:   "foo",

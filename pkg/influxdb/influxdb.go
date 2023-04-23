@@ -43,10 +43,11 @@ func (s *Source) Close() {
 }
 
 type Item struct {
-	Value  int
-	Mirror string
-	Time   time.Time
-	Path   string
+	Value   int
+	Mirror  string
+	Time    time.Time
+	Path    string
+	Disable bool
 }
 
 // Result is the return type of Query.
@@ -56,7 +57,13 @@ func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 	query := fmt.Sprintf(`from(bucket: "%s")
         |> range(start: -15m)
         |> filter(fn: (r) => r._measurement == "repo" and r.name == "%s")
-        |> map(fn: (r) => ({_value: r._value, mirror: r.mirror, _time: r._time, path: r.url}))
+		|> map(fn: (r) => ({
+			_value: r._value,
+			mirror: r.mirror,
+			_time: r._time,
+			path: r.url,
+			disabled: r.disabled
+		   }))
         |> tail(n: 1)`, s.bucket, escape.String(cname))
 	// SQL INJECTION!!! (use read only token)
 	res, err := s.queryAPI.Query(ctx, query)
@@ -68,10 +75,11 @@ func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 	for res.Next() {
 		record := res.Record()
 		r = append(r, Item{
-			Value:  int(record.Value().(int64)),
-			Mirror: record.ValueByKey("mirror").(string),
-			Time:   record.Time(),
-			Path:   record.ValueByKey("path").(string),
+			Value:   int(record.Value().(int64)),
+			Mirror:  record.ValueByKey("mirror").(string),
+			Time:    record.Time(),
+			Path:    record.ValueByKey("path").(string),
+			Disable: record.ValueByKey("disable").(string) != "0",
 		})
 	}
 	return r, res.Err()
