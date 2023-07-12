@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -154,21 +155,39 @@ type Site struct {
 	Abbr string `json:"abbr"`
 }
 
+type MirrorItem struct {
+	CName   string `json:"cname"`
+	URL     string `json:"url"`
+	Status  string `json:"status"`
+	Disable bool   `json:"disable"`
+}
+
 type MirrorZDFile struct {
-	Extension string     `json:"extension"`
-	Endpoints []Endpoint `json:"endpoints"`
-	Site      Site       `json:"site"`
+	Extension string       `json:"extension"`
+	Endpoints []Endpoint   `json:"endpoints"`
+	Site      Site         `json:"site"`
+	Mirrors   []MirrorItem `json:"mirrors"`
+}
+
+type MirrorMapItem struct {
+	Abbr string
+	Path string
 }
 
 type MirrorZDatabase struct {
-	mu       sync.RWMutex
-	files    []MirrorZDFile
-	labelMap map[string]string
-	abbrMap  map[string]*MirrorZDFile
+	mu        sync.RWMutex
+	files     []MirrorZDFile
+	labelMap  map[string]string
+	abbrMap   map[string]*MirrorZDFile
+	mirrorMap map[string][]MirrorMapItem
 }
 
 func NewMirrorZDatabase() *MirrorZDatabase {
 	return new(MirrorZDatabase)
+}
+
+func NormalizeCname(cname string) string {
+	return strings.ReplaceAll(cname, "-", "")
 }
 
 func (m *MirrorZDatabase) Load(path string) (err error) {
@@ -182,6 +201,7 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 	newFiles := make([]MirrorZDFile, 0, len(files))
 	newLabelMap := make(map[string]string)
 	newAbbrMap := make(map[string]*MirrorZDFile)
+	newMirrorMap := make(map[string][]MirrorMapItem)
 
 	for _, file := range files {
 		if !strings.HasSuffix(file.Name(), ".json") {
@@ -205,6 +225,17 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		for _, e := range data.Endpoints {
 			newLabelMap[e.Label] = e.Resolve
 		}
+
+		for i := range data.Mirrors {
+			data.Mirrors[i].CName = NormalizeCname(data.Mirrors[i].CName)
+			newMirrorMap[data.Mirrors[i].CName] = append(newMirrorMap[data.Mirrors[i].CName], MirrorMapItem{
+				Abbr: data.Site.Abbr,
+				Path: data.Mirrors[i].URL,
+			})
+		}
+		sort.Slice(data.Mirrors, func(i, j int) bool {
+			return data.Mirrors[i].CName < data.Mirrors[j].CName
+		})
 	}
 	for label, resolve := range newLabelMap {
 		logger.Infof("%s -> %s\n", label, resolve)
@@ -213,6 +244,7 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 	m.files = newFiles
 	m.labelMap = newLabelMap
 	m.abbrMap = newAbbrMap
+	m.mirrorMap = newMirrorMap
 	m.mu.Unlock()
 	return
 }
@@ -240,6 +272,14 @@ func (m *MirrorZDatabase) Lookup(abbr string) (endpoints []Endpoint, ok bool) {
 func (m *MirrorZDatabase) ResolveLabel(label string) (resolve string, ok bool) {
 	m.mu.RLock()
 	resolve, ok = m.labelMap[label]
+	m.mu.RUnlock()
+	return
+}
+
+// Query returns the files of a cname.
+func (m *MirrorZDatabase) Query(cname string) (mirrors []MirrorMapItem, ok bool) {
+	m.mu.RLock()
+	mirrors, ok = m.mirrorMap[cname]
 	m.mu.RUnlock()
 	return
 }

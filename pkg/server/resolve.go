@@ -66,7 +66,7 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 
 	res, ok := s.queryInflux(ctx, cname)
 	if !ok {
-		return
+		return "", fmt.Errorf("queryInflux failed")
 	}
 
 	var resolve, repo string
