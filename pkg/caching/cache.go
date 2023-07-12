@@ -28,9 +28,9 @@ type Resolved struct {
 }
 
 type ResolveCache struct {
-	sync.Map // map[string]Resolved
-
-	ttl time.Duration
+	m      sync.Map // map[string]Resolved
+	ttl    time.Duration
+	ticker *time.Ticker
 }
 
 func NewResolveCache(ttl time.Duration) *ResolveCache {
@@ -39,7 +39,7 @@ func NewResolveCache(ttl time.Duration) *ResolveCache {
 
 func (c *ResolveCache) Load(key string) (Resolved, Status) {
 	cur := time.Now()
-	v, ok := c.Map.Load(key)
+	v, ok := c.m.Load(key)
 	if !ok {
 		return Resolved{}, StatusNone
 	}
@@ -59,11 +59,11 @@ func (c *ResolveCache) Store(key string, value Resolved) {
 		value.start = cur
 	}
 	value.last = cur
-	c.Map.Store(key, value)
+	c.m.Store(key, value)
 }
 
 func (c *ResolveCache) Delete(key string) {
-	c.Map.Delete(key)
+	c.m.Delete(key)
 }
 
 func (c *ResolveCache) Touch(key string) {
@@ -76,14 +76,14 @@ func (c *ResolveCache) Touch(key string) {
 
 func (c *ResolveCache) GC(cur time.Time) {
 	cacheGCLogger.Infof("Resolved GC start at %s\n", cur)
-	c.Map.Range(func(k, v any) bool {
+	c.m.Range(func(k, v any) bool {
 		r, ok := v.(Resolved)
 		if !ok {
-			c.Map.Delete(k)
+			c.m.Delete(k)
 			return true
 		}
 		if cur.Sub(r.start) >= c.ttl && cur.Sub(r.last) >= c.ttl {
-			c.Map.Delete(k)
+			c.m.Delete(k)
 			cacheGCLogger.Infof("Resolved GC %s: %s\n", k, r.Url)
 		}
 		return true
@@ -91,20 +91,30 @@ func (c *ResolveCache) GC(cur time.Time) {
 	cacheGCLogger.Infof("Resolved GC done at %s\n\n", time.Now())
 }
 
-func (c *ResolveCache) GCTicker(ch <-chan time.Time) {
+func (c *ResolveCache) gcTicker(ch <-chan time.Time) {
 	for t := range ch {
 		c.GC(t)
 	}
 }
 
 func (c *ResolveCache) StartGCTicker() {
-	ticker := time.NewTicker(time.Second * time.Duration(c.ttl))
-	go c.GCTicker(ticker.C)
+	if c.ticker != nil {
+		return
+	}
+	c.ticker = time.NewTicker(time.Second * time.Duration(c.ttl))
+	go c.gcTicker(c.ticker.C)
+}
+
+func (c *ResolveCache) StopGCTicker() {
+	if c.ticker != nil {
+		c.ticker.Stop()
+		c.ticker = nil
+	}
 }
 
 func (c *ResolveCache) Clear() {
-	c.Map.Range(func(k, v any) bool {
-		c.Map.Delete(k)
+	c.m.Range(func(k, v any) bool {
+		c.m.Delete(k)
 		return true
 	})
 }
