@@ -6,12 +6,16 @@ const query = `
   repo = from(bucket:"mirrorz")
     |> range(start: -10m)
     |> filter(fn: (r) => r._measurement == "repo" and r.name == "reponame")
-    |> map(fn: (r) => ({_value:r._value,mirror:r.mirror,_time:r._time,path:r.url}))
+    |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> filter(fn: (r) => r.disable != true)
+    |> map(fn: (r) => ({_value:r.value,mirror:r.mirror,_time:r._time,path:r.url}))
     |> tail(n:1)
 
   site = from(bucket:"mirrorz")
     |> range(start: -10m)
     |> filter(fn: (r) => r._measurement == "site")
+    |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+    |> filter(fn: (r) => r.disable != true)
     |> map(fn: (r) => ({mirror:r.mirror,url:r.url}))
     |> tail(n:1)
 
@@ -103,9 +107,10 @@ async function handler(request) {
             return Response.redirect('https://mirrorz.org/about', 302);
 
         // Query influxdb 2.x
-        response = await fetch(INFLUX_URL, {
+        const influx_url = new URL("/api/v2/query", INFLUX_URL).toString();
+        const response = await fetch(influx_url, {
             headers: {
-                'Authorization': INFLUX_TOKEN,
+                'Authorization': 'Token ' + INFLUX_TOKEN,
                 'Accept': 'application/csv',
                 'Content-Type': 'application/vnd.flux',
             },
@@ -113,7 +118,12 @@ async function handler(request) {
             body: query.replace('reponame', pathname_arr[1]),
         });
 
+        const status = await response.status;
         const csv = await response.text();
+        // console.log(csv);
+        if (status >= 400) {
+            return new Response(`get HTTP ${status} from influxdb`, {status: status});
+        }
         const parsed = parse_csv(csv);
         if (is_debug(request))
             return new Response(JSON.stringify(parsed, null, 2));
