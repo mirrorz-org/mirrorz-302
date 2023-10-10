@@ -57,12 +57,13 @@ func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 	query := fmt.Sprintf(`from(bucket: "%s")
         |> range(start: -15m)
         |> filter(fn: (r) => r._measurement == "repo" and r.name == "%s")
+		|> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
 		|> map(fn: (r) => ({
-			_value: r._value,
+			_value: r.value,
 			mirror: r.mirror,
 			_time: r._time,
 			path: r.url,
-			disabled: r.disabled
+			disable: r.disable
 		   }))
         |> tail(n: 1)`, s.bucket, escape.String(cname))
 	// SQL INJECTION!!! (use read only token)
@@ -79,7 +80,7 @@ func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 			Mirror:  record.ValueByKey("mirror").(string),
 			Time:    record.Time(),
 			Path:    record.ValueByKey("path").(string),
-			Disable: record.ValueByKey("disable").(string) != "0",
+			Disable: record.ValueByKey("disable").(bool),
 		})
 	}
 	return r, res.Err()
