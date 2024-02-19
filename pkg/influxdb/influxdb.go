@@ -74,7 +74,7 @@ func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 	r := make(Result, 0)
 	for res.Next() {
 		record := res.Record()
-		disable := record.ValueByKey("disable").(bool)
+		disable, _ := record.ValueByKey("disable").(bool)
 		if !disable {
 			r = append(r, Item{
 				Value:  int(record.Value().(int64)),
