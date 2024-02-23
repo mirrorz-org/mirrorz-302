@@ -11,4 +11,4 @@ clean:
 	rm $(BIN)
 
 $(BIN):
-	go build -o "$@"
+	go build -ldflags="-s -w" -o "$@"

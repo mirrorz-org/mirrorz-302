@@ -1,18 +1,16 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
-	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/juju/loggo"
 	"github.com/mirrorz-org/mirrorz-302/pkg/geo"
 	"github.com/mirrorz-org/mirrorz-302/pkg/server"
+	"sigs.k8s.io/yaml"
 )
 
 var logger = loggo.GetLogger("<root>")
@@ -23,7 +21,7 @@ func LoadConfig(path string) (config server.Config, err error) {
 		logger.Errorf("LoadConfig ReadFile failed: %v\n", err)
 		return
 	}
-	err = json.Unmarshal(file, &config)
+	err = yaml.Unmarshal(file, &config)
 	if err != nil {
 		logger.Errorf("LoadConfig json Unmarshal failed: %v\n", err)
 		return
@@ -42,10 +40,7 @@ func LoadConfig(path string) (config server.Config, err error) {
 }
 
 func main() {
-	//lint:ignore SA1019 - we don't care
-	rand.Seed(time.Now().Unix())
-
-	configPtr := flag.String("config", "config.json", "path to config file")
+	configPtr := flag.String("config", "config.yml", "path to config file")
 	debugPtr := flag.Bool("debug", false, "debug mode")
 	flag.Parse()
 
