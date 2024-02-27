@@ -1,17 +1,11 @@
 #/usr/bin/env bash
 
-## setup config.json
+## setup config.yaml
 mkdir -p /etc/mirrorzd
-echo '{}' > /etc/mirrorzd/config.json
-chown mirrorz:mirrorz /etc/mirrorzd/config.json
-chmod 600 /etc/mirrorzd/config.json
+echo '{}' > /etc/mirrorzd/config.yaml
+chown mirrorz:mirrorz /etc/mirrorzd/config.yaml
+chmod 600 /etc/mirrorzd/config.yaml
 
 ## set /var/log
 mkdir -p /var/log/mirrorzd
 chown mirrorz:mirrorz /var/log/mirrorzd
-
-## setup config.json
-mkdir -p /etc/ipasn
-echo '{}' > /etc/ipasn/config.json
-chown mirrorz:mirrorz /etc/ipasn/config.json
-chmod 600 /etc/ipasn/config.json
