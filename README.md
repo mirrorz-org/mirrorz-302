@@ -105,6 +105,21 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
 
 ### Note
 
+#### Endpoints for debugging
+
+* Add `?trace=1` to print available site score for selected repo:
+
+   ```shell
+   curl -4 -v 'https://mirrors.cernet.edu.cn/ubuntu/?trace=1'
+   curl -6 -v 'https://mirrors.cernet.edu.cn/debian/?trace=1'
+   ```
+
+* `/api/scoring` to print all available sites
+
+   ```shell
+   curl https://mirrors.cernet.edu.cn/api/scoring | jq .
+   ```
+
 #### On range when multiple endpoints
 
 ```json
