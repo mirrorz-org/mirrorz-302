@@ -14,6 +14,8 @@ func Eval(e mirrorzdb.Endpoint, m requestmeta.RequestMeta) (score Score) {
 		if label == e.Label {
 			score.Pos = index + 1
 			// Note: The last label takes precedence, so don't `break` here.
+		} else if label == "avoid" + e.Label {
+			score.Pos = -1
 		}
 	}
 

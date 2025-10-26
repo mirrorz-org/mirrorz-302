@@ -23,6 +23,7 @@ In 302-go, users are redirected to a mirror site based on their IP, ISP, geoloca
   - IP: From the perspective of CERNET/CERNET2 and universities, mirror sites can fine-tune based on IP range
   - GEO: As this project is limited to .edu.cn mirror sites, geographical proximity does not necessarily imply fast network connection.
   - advanced users may manually specify a preference list, e.g. `tuna-ustccampus.mirrors.edu.cn`
+    - or mix in undesired sites like, e.g. `avoidustccampus` (experimental)
 * mirror site
   - endpoint: multiple upstreams (CERNET, CMNET, etc), ipv4/ipv6 only endpoint, and default endpoint
   - range: users inside this range should better be redirected to this mirror site
