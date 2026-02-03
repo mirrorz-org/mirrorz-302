@@ -75,14 +75,15 @@ func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 	for res.Next() {
 		record := res.Record()
 		disable, _ := record.ValueByKey("disable").(bool)
-		if !disable {
-			r = append(r, Item{
-				Value:  int(record.Value().(int64)),
-				Mirror: record.ValueByKey("mirror").(string),
-				Time:   record.Time(),
-				Path:   record.ValueByKey("path").(string),
-			})
+		if disable {
+			continue
 		}
+		r = append(r, Item{
+			Value:  int(record.Value().(int64)),
+			Mirror: record.ValueByKey("mirror").(string),
+			Time:   record.Time(),
+			Path:   record.ValueByKey("path").(string),
+		})
 	}
 	return r, res.Err()
 }

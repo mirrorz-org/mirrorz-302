@@ -7,10 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/goccy/go-yaml"
 	"github.com/juju/loggo"
 	"github.com/mirrorz-org/mirrorz-302/pkg/geo"
 	"github.com/mirrorz-org/mirrorz-302/pkg/server"
-	"sigs.k8s.io/yaml"
 )
 
 var logger = loggo.GetLogger("<root>")

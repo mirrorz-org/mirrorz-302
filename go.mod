@@ -3,12 +3,12 @@ module github.com/mirrorz-org/mirrorz-302
 go 1.22
 
 require (
+	github.com/goccy/go-yaml v1.19.2
 	github.com/influxdata/influxdb v1.11.5
 	github.com/influxdata/influxdb-client-go/v2 v2.13.0
 	github.com/ipipdotnet/ipdb-go v1.3.3
 	github.com/juju/loggo v1.0.0
 	github.com/stretchr/testify v1.8.4
-	sigs.k8s.io/yaml v1.4.0
 )
 
 require (
