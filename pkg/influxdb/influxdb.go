@@ -54,7 +54,7 @@ type Result = []Item
 
 func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 	query := fmt.Sprintf(`from(bucket: "%s")
-        |> range(start: -15m)
+        |> range(start: -1h)
         |> filter(fn: (r) => r._measurement == "repo" and r.name == "%s")
 		|> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
 		|> map(fn: (r) => ({
