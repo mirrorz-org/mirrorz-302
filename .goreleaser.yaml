@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+
+version: 2
+
+project_name: mirrorzd
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: mirrorzd
+    main: ./302.go
+    binary: mirrorzd
+    goos:
+      - linux
+    goarch:
+      - amd64
+      # - arm64
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+
+archives:
+  - id: binary_only
+    formats:
+      - binary
+    name_template: '{{ .Binary }}_{{ .Os }}_{{ .Arch }}'
+    wrap_in_directory: false
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - Merge pull request
+      - Merge branch
+
+nfpms:
+  - id: deb
+    package_name: mirrorzd
+    file_name_template: '{{ .PackageName }}_{{ .Version }}_{{ .Arch }}'
+    vendor: MirrorZ
+    homepage: https://github.com/mirrorz-org/mirrorz-302
+    maintainer: MirrorZ Contributors
+    description: MirrorZ 302 redirector server
+    license: MIT
+    formats:
+      - deb
+    dependencies:
+      - systemd
+    bindir: /usr/local/sbin
+    contents:
+      - src: etc/mirrorzd.service
+        dst: /usr/lib/systemd/system/mirrorzd.service
+      - src: etc/logrotate.d-mirrorzd
+        dst: /etc/logrotate.d/mirrorzd
+      - src: etc/mirrorzd.example.yaml
+        dst: /etc/mirrorzd/config.yml.example
+        type: config|noreplace
+      - dst: /var/log/mirrorzd
+        type: dir
