@@ -109,8 +109,10 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 		return "label v4only but endpoint not v4only", false
 	case m.V6Only() && !e.Filter.V6Only:
 		return "label v6only but endpoint not v6only", false
-	case !e.Public && !e.MatchISPs(m.ISP) && e.MatchIPMask(m.IP) == 0:
-		return "private endpoint", false
+	case !e.Public && len(e.RangeCIDR) == 0:
+		return "private endpoint without cidr range (disabled)", false
+	case !e.Public && e.MatchIPMask(m.IP) == 0:
+		return "ip not in private cidr range", false
 	default:
 		return "OK", true
 	}

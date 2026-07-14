@@ -27,7 +27,7 @@ In 302-go, users are redirected to a mirror site based on their IP, ISP, geoloca
 * mirror site
   - endpoint: multiple upstreams (CERNET, CMNET, etc), ipv4/ipv6 only endpoint, and default endpoint
   - range: users inside this range should better be redirected to this mirror site
-  - public: private mirror has limited access range, IP/ASN not in its range should not be redirected there
+  - public: private mirror has limited access range, IP not in its CIDR range should not be redirected there. A private mirror must declare at least one CIDR in `range`, otherwise it is treated as disabled.
 * operator (not implemented)
   - load balance
   - speed testing from multiple AS
@@ -89,13 +89,13 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
   - `label`: a unique identifier for this endpoint
   - `resolve`: a domain name or IP address. This is directly concatenated in the final URL so a subpath may also be provided (e.g. `linux.xidian.edu.cn/mirrors` and `10.0.0.1:8080/proxy`).
     + It should not end with slash `/` as the request path `/archlinux/iso` will be directly concatenated to it.
-  - `public`: the endpoint can be reached outside of its range. Usually `false` for campus-only mirrors.
+  - `public`: the endpoint can be reached outside of its range. Usually `false` for campus-only mirrors. When `public: false` and `range` declares no CIDR, the endpoint is treated as disabled and never serves any request.
   - `filter`: Each endpoint has many capabilities
     + `SSL`: HTTPS available
     + `NOSSL`: HTTP available
     + `V4`: IPv4 available (A record)
     + `V6`: IPv6 available (AAAA record)
-  - `range`: when `public`, the endpoint **prefers** these ranges, other user may still use this endpoint; otherwise it **only serves** these CIDRs/ISPs (Note that GEO is not included)
+  - `range`: when `public`, the endpoint **prefers** these ranges, other user may still use this endpoint; otherwise it **only serves** clients whose IP falls in one of the declared CIDRs. ISP and REGION do not grant access for private endpoints (they are only used for preference scoring when `public`). If no CIDR is declared, the endpoint is disabled.
     + COUNTRY: Must start with `COUNTRY`, then a colon, then [ISO country code](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2). Example: `COUNTRY:CN` or `COUNTRY:US`. Defaults to `CN`.
     + REGION: Must start with `REGION`, then a colon, then province name (GB/T 2260-2007). Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai). Defaults to `BJ`.
     + ISP: Must start with `ISP`, then a colon, then ISP name. Example: `ISP:CERNET` or `ISP:CHINANET`. Defaults to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
