@@ -10,6 +10,8 @@ Currently redirecting is decided from information collected by the [monitor](htt
 
 # 302-js: Newest
 
+**302-js is no longer supported.**
+
 In 302-js, users are just redirected to a mirror site with the most up-to-date info; however, this may not offer enough bandwidth.
 
 # 302-go: Nearest
