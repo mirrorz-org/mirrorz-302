@@ -4,7 +4,7 @@ We currently have two 302 backend: 302-js and 302-go
 
 302-js is deployed at <https://mirrors.mirrorz.org> or <https://m.mirrorz.org> in short. You may visit <https://m.mirrorz.org/archlinux/>. Note that only `/${cname}` from the [frontend](https://mirrorz.org/list)/[monitor](https://mirrorz.org/monitor) are valid pathnames. Currently this is deployed using Cloudflare Workers. Credentials are configured as environment variables.
 
-302-go is deployed at <https://mirrors.cernet.edu.cn> and <https://mirrors.cngi.edu.cn>. They only redirect to educational mirror sites.
+302-go is deployed at <https://mirrors.cernet.edu.cn>. They only redirect to educational mirror sites.
 
 Currently redirecting is decided from information collected by the [monitor](https://github.com/mirrorz-org/mirrorz-monitor). Two policies are discussed and implemented.
 
