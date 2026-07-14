@@ -32,6 +32,10 @@ type Endpoint struct {
 	RangeRegion []string
 	RangeISP    []string
 	RangeCIDR   []*net.IPNet
+	// SiteLabel is the representative label of the site this endpoint
+	// belongs to (the first endpoint's label), set during Load. It is
+	// used so that `avoid<SiteLabel>` excludes the whole site.
+	SiteLabel string
 }
 
 // endpointJSON is used to parse Endpoint from JSON.
@@ -94,6 +98,15 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 
 // Match checks if the endpoint can serve the request.
 func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
+	for _, l := range m.Labels {
+		if e.SiteLabel != "" && l == "avoid"+e.SiteLabel {
+			return "avoid site", false
+		}
+		if l == "avoid"+e.Label {
+			return "avoid endpoint", false
+		}
+	}
+
 	remoteIPv4 := m.IP.To4() != nil
 
 	switch {
@@ -224,7 +237,14 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		newFiles = append(newFiles, data)
 		newAbbrMap[data.Site.Abbr] = &newFiles[idx]
 
-		for _, e := range data.Endpoints {
+		if len(newFiles[idx].Endpoints) > 0 {
+			siteLabel := newFiles[idx].Endpoints[0].Label
+			for j := range newFiles[idx].Endpoints {
+				newFiles[idx].Endpoints[j].SiteLabel = siteLabel
+			}
+		}
+
+		for _, e := range newFiles[idx].Endpoints {
 			newLabelMap[e.Label] = e.Resolve
 		}
 

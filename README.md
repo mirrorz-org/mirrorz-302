@@ -23,7 +23,7 @@ In 302-go, users are redirected to a mirror site based on their IP, ISP, geoloca
   - IP: From the perspective of CERNET/CERNET2 and universities, mirror sites can fine-tune based on IP range
   - GEO: As this project is limited to .edu.cn mirror sites, geographical proximity does not necessarily imply fast network connection.
   - advanced users may manually specify a preference list, e.g. `tuna-ustccampus.mirrors.edu.cn`
-    - or mix in undesired sites like, e.g. `avoidustccampus` (experimental)
+    - (experimental) or mix in undesired sites like, e.g. `avoidustccampus`. `avoid` + an endpoint's label excludes that endpoint from candidates; `avoid` + a site's representative label (the first endpoint's label) excludes the whole site. An avoided endpoint is fully excluded rather than just deprioritized.
 * mirror site
   - endpoint: multiple upstreams (CERNET, CMNET, etc), ipv4/ipv6 only endpoint, and default endpoint
   - range: users inside this range should better be redirected to this mirror site
@@ -142,7 +142,7 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
 
 The first endpoint is the default endpoint. If all the endpoints have the same preference, we choose the first one.
 
-Usually, the first endpoint is a generic endpoint (e.g. `mirrors.xx.edu.cn`). To make a preference difference, if further endpoint (e.g. `mirrors4` or `cmcc.mirrors`) covers a more specfic `range`, the generic endpoint should not declare these ranges and the redirector should redirect the user to the more specific endpoint.
+Usually, the first endpoint is a generic (representative) endpoint (e.g. `mirrors.xx.edu.cn`). To make a preference difference, if further endpoint (e.g. `mirrors4` or `cmcc.mirrors`) covers a more specfic `range`, the generic endpoint should not declare these ranges and the redirector should redirect the user to the more specific endpoint.
 
 For example, if `mirrors4` contains some CIDR in its range, e.g. `166.111.0.0`, then we prefer `mirrors4` over `mirrors` when there are requests from that CIDR.
 
