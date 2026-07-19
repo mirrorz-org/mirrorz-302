@@ -94,7 +94,7 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
   - `public`: the endpoint can be reached outside of its range. Usually `false` for campus-only mirrors. When `public: false` and `range` declares no CIDR, the endpoint is treated as disabled and never serves any request.
   - `filter`: Each endpoint has many capabilities
     + `SSL`: HTTPS available
-    + `NOSSL`: HTTP available
+    + `NOSSL`: HTTP available, and does not redirect to HTTPS when accessing repos
     + `V4`: IPv4 available (A record)
     + `V6`: IPv6 available (AAAA record)
   - `range`: when `public`, the endpoint **prefers** these ranges, other user may still use this endpoint; otherwise it **only serves** clients whose IP falls in one of the declared CIDRs. ISP and REGION do not grant access for private endpoints (they are only used for preference scoring when `public`). If no CIDR is declared, the endpoint is disabled.
