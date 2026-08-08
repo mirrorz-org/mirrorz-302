@@ -1,8 +1,8 @@
 influxdb:
   url: http://localhost:8086
-  bucket: mirrorz
-  org: mirrorz
-  token: dQw4w9WgXcQ
+  database: mirrorz
+  username: mirrorz-302
+  password: dQw4w9WgXcQ
 ipdb-file: /dev/urandom
 http-bind-address: 127.0.0.1:8888
 mirrorz-d-directory: mirrorz.d
