@@ -1,10 +1,18 @@
 package server
 
 import (
+	"context"
+	"net"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
+	"github.com/mirrorz-org/mirrorz-302/pkg/mirrorzdb"
+	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
+	"github.com/mirrorz-org/mirrorz-302/pkg/tracing"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCalcDeltaCutoff(t *testing.T) {
@@ -17,4 +25,87 @@ func TestCalcDeltaCutoff(t *testing.T) {
 	}
 	// avg = -2, std = 3, zero and positive values are ignored
 	as.Equal(-8, calcDeltaCutoff(payload))
+}
+
+func TestOutdatedReasonAbsoluteLimit(t *testing.T) {
+	s := &Server{maxRepoStaleness: DefaultMaxRepoStaleness}
+
+	assert.Empty(t, s.outdatedReason(-DefaultMaxRepoStaleness, -2_000_000))
+	assert.Contains(t, s.outdatedReason(-DefaultMaxRepoStaleness-1, -2_000_000), "absolute")
+	assert.Contains(t, s.outdatedReason(-100, -99), "dynamic")
+	assert.Empty(t, s.outdatedReason(0, -1))
+}
+
+func TestNewServerDefaultsMaxRepoStaleness(t *testing.T) {
+	s := NewServer(Config{})
+	defer s.influx.Close()
+
+	assert.Equal(t, DefaultMaxRepoStaleness, s.maxRepoStaleness)
+
+	s = NewServer(Config{MaxRepoStaleness: 3600})
+	defer s.influx.Close()
+	assert.Equal(t, 3600, s.maxRepoStaleness)
+}
+
+func TestDeltaCutoffExcludesMirrorsWithoutMatchingEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	writeMirror := func(name, abbr string) {
+		content := `{
+  "extension": "D",
+  "site": {"abbr": "` + abbr + `"},
+  "endpoints": [{
+    "label": "` + abbr + `",
+    "resolve": "` + abbr + `.example.com",
+    "public": true,
+    "filter": ["V4", "SSL"],
+    "range": []
+  }]
+}`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
+	}
+	writeMirror("a.json", "A")
+	writeMirror("b.json", "B")
+
+	db := mirrorzdb.NewMirrorZDatabase()
+	require.NoError(t, db.Load(dir))
+	s := &Server{mirrorzd: db, maxRepoStaleness: DefaultMaxRepoStaleness}
+	meta := requestmeta.RequestMeta{
+		IP:     net.ParseIP("192.0.2.1"),
+		Scheme: "https",
+	}
+	res := influxdb.Result{
+		{Mirror: "A", Value: -10},
+		{Mirror: "B", Value: -10},
+		{Mirror: "MISSING", Value: -10_000_000},
+	}
+
+	eligible := s.eligibleForRequest(res, meta)
+	require.Len(t, eligible, 2)
+	assert.Equal(t, -10, calcDeltaCutoff(eligible))
+}
+
+func TestResolveExistRejectsAbsolutelyOutdatedMirror(t *testing.T) {
+	dir := t.TempDir()
+	content := `{
+  "extension": "D",
+  "site": {"abbr": "A"},
+  "endpoints": [{
+    "label": "a",
+    "resolve": "a.example.com",
+    "public": true,
+    "filter": ["V4", "SSL"],
+    "range": []
+  }]
+}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.json"), []byte(content), 0o600))
+	db := mirrorzdb.NewMirrorZDatabase()
+	require.NoError(t, db.Load(dir))
+	s := &Server{mirrorzd: db, maxRepoStaleness: DefaultMaxRepoStaleness}
+	meta := requestmeta.RequestMeta{IP: net.ParseIP("192.0.2.1"), Scheme: "https"}
+	ctx := context.WithValue(context.Background(), tracing.Key, tracing.NewTracer(false))
+	res := influxdb.Result{{Mirror: "A", Value: -DefaultMaxRepoStaleness - 1, Path: "/ubuntu"}}
+
+	resolve, repo := s.ResolveExist(ctx, res, "a.example.com", meta)
+	assert.Empty(t, resolve)
+	assert.Empty(t, repo)
 }

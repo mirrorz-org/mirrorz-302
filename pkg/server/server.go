@@ -27,8 +27,11 @@ type Config struct {
 	Homepage          string          `json:"homepage"`
 	DomainLength      int             `json:"domain-length"`
 	CacheTime         int             `json:"cache-time"`
+	MaxRepoStaleness  int             `json:"max-repo-staleness"`
 	LogDirectory      string          `json:"log-directory"`
 }
+
+const DefaultMaxRepoStaleness = 48 * 60 * 60
 
 type Server struct {
 	// feature providers
@@ -38,9 +41,10 @@ type Server struct {
 	meta     *requestmeta.Parser
 
 	// saved config
-	logDir      string
-	mirrorzdDir string
-	homepage    string
+	logDir           string
+	mirrorzdDir      string
+	homepage         string
+	maxRepoStaleness int
 
 	// http muxes
 	handler, apiHandler http.Handler
@@ -52,6 +56,9 @@ type Server struct {
 const ApiPrefix = requestmeta.ApiPrefix
 
 func NewServer(config Config) *Server {
+	if config.MaxRepoStaleness <= 0 {
+		config.MaxRepoStaleness = DefaultMaxRepoStaleness
+	}
 	s := &Server{
 		resolved: caching.NewResolveCache(time.Duration(config.CacheTime) * time.Second),
 		mirrorzd: mirrorzdb.NewMirrorZDatabase(),
@@ -67,7 +74,8 @@ func NewServer(config Config) *Server {
 		failLogger:    logging.GetLogger("fail"),
 		errorLogger:   logging.GetLogger("error"),
 
-		homepage: config.Homepage,
+		homepage:         config.Homepage,
+		maxRepoStaleness: config.MaxRepoStaleness,
 	}
 	s.buildHandlers()
 	return s

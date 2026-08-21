@@ -123,6 +123,10 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
    curl https://mirrors.cernet.edu.cn/api/scoring | jq .
    ```
 
+Repository mirrors whose monitor delta is more negative than either the dynamic
+outlier cutoff or `max-repo-staleness` are excluded from scoring. The latter is
+configured in seconds and defaults to 172800 (48 hours).
+
 #### On range when multiple endpoints
 
 ```json

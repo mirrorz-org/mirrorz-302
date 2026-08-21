@@ -35,6 +35,7 @@ func LoadConfig(path string) (config server.Config, err error) {
 	logger.Debugf("LoadConfig Homepage: %s\n", config.Homepage)
 	logger.Debugf("LoadConfig Domain Length: %d\n", config.DomainLength)
 	logger.Debugf("LoadConfig Cache Time: %d\n", config.CacheTime)
+	logger.Debugf("LoadConfig Max Repo Staleness: %d\n", config.MaxRepoStaleness)
 	logger.Debugf("LoadConfig Log Directory: %s\n", config.LogDirectory)
 	return
 }

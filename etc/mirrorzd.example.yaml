@@ -9,4 +9,5 @@ mirrorz-d-directory: mirrorz.d
 homepage: mirrorz.org
 domain-length: 5
 cache-time: 300
+max-repo-staleness: 172800
 log-directory: /var/log/mirrorzd

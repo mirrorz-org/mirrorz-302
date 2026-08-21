@@ -72,7 +72,7 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 	var resolve, repo string
 
 	if cacheStatus == caching.StatusStale {
-		resolve, repo = s.ResolveExist(ctx, res, keyResolved.Resolve)
+		resolve, repo = s.ResolveExist(ctx, res, keyResolved.Resolve, meta)
 	}
 
 	var chosenScore scoring.Score
@@ -119,6 +119,33 @@ func calcDeltaCutoff(res influxdb.Result) int {
 	return int(math.Round(mean - 2*stdev))
 }
 
+func (s *Server) eligibleForRequest(res influxdb.Result, meta requestmeta.RequestMeta) influxdb.Result {
+	eligible := make(influxdb.Result, 0, len(res))
+	for _, item := range res {
+		endpoints, ok := s.mirrorzd.Lookup(item.Mirror)
+		if !ok {
+			continue
+		}
+		for _, endpoint := range endpoints {
+			if _, ok := endpoint.Match(meta); ok {
+				eligible = append(eligible, item)
+				break
+			}
+		}
+	}
+	return eligible
+}
+
+func (s *Server) outdatedReason(delta, dynamicCutoff int) string {
+	if delta < -s.maxRepoStaleness {
+		return fmt.Sprintf("absolute (delta=%d, limit=%d)", delta, -s.maxRepoStaleness)
+	}
+	if delta < dynamicCutoff {
+		return fmt.Sprintf("dynamic (delta=%d, cutoff=%d)", delta, dynamicCutoff)
+	}
+	return ""
+}
+
 // ResolveBest tries to find the best mirror for the given request
 func (s *Server) ResolveBest(ctx context.Context, meta requestmeta.RequestMeta) (scores scoring.Scores) {
 	if meta.CName == "" {
@@ -143,7 +170,8 @@ func (s *Server) resolveBestAll(ctx context.Context, meta requestmeta.RequestMet
 // Resolves the best mirror for the given request.
 func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requestmeta.RequestMeta, mode int) (scores scoring.Scores) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
-	deltaCutoff := calcDeltaCutoff(res)
+	deltaCutoff := calcDeltaCutoff(s.eligibleForRequest(res, meta))
+	tracer.Printf("outdated thresholds: dynamic=%d absolute=%d\n", deltaCutoff, -s.maxRepoStaleness)
 
 	for _, item := range res {
 		abbr := item.Mirror
@@ -155,8 +183,8 @@ func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requ
 		var scoresEndpoints scoring.Scores
 		for _, endpoint := range endpoints {
 			tracer.Printf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
-			if item.Value < deltaCutoff {
-				tracer.Printf("    error: outdated\n")
+			if reason := s.outdatedReason(item.Value, deltaCutoff); reason != "" {
+				tracer.Printf("    error: outdated: %s\n", reason)
 				continue
 			}
 			if reason, ok := endpoint.Match(meta); !ok {
@@ -197,8 +225,9 @@ func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requ
 }
 
 // ResolveExist refreshes a stale cached result
-func (s *Server) ResolveExist(ctx context.Context, res influxdb.Result, oldResolve string) (resolve string, repo string) {
+func (s *Server) ResolveExist(ctx context.Context, res influxdb.Result, oldResolve string, meta requestmeta.RequestMeta) (resolve string, repo string) {
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
+	deltaCutoff := calcDeltaCutoff(s.eligibleForRequest(res, meta))
 
 outerLoop:
 	for _, item := range res {
@@ -212,6 +241,14 @@ outerLoop:
 			tracer.Printf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
 
 			if oldResolve == endpoint.Resolve {
+				if reason := s.outdatedReason(item.Value, deltaCutoff); reason != "" {
+					tracer.Printf("  error: outdated: %s\n", reason)
+					continue
+				}
+				if reason, ok := endpoint.Match(meta); !ok {
+					tracer.Printf("  error: %s\n", reason)
+					continue
+				}
 				resolve = endpoint.Resolve
 				repo = item.Path
 				tracer.Printf("exist\n")
