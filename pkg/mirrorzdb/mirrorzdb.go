@@ -185,8 +185,9 @@ type MirrorZDFile struct {
 }
 
 type MirrorMapItem struct {
-	Abbr string
-	Path string
+	Abbr   string
+	Path   string
+	Status string
 }
 
 type MirrorZDatabase struct {
@@ -251,8 +252,9 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		for i := range data.Mirrors {
 			data.Mirrors[i].CName = NormalizeCname(data.Mirrors[i].CName)
 			newMirrorMap[data.Mirrors[i].CName] = append(newMirrorMap[data.Mirrors[i].CName], MirrorMapItem{
-				Abbr: data.Site.Abbr,
-				Path: data.Mirrors[i].URL,
+				Abbr:   data.Site.Abbr,
+				Path:   data.Mirrors[i].URL,
+				Status: data.Mirrors[i].Status,
 			})
 		}
 		sort.Slice(data.Mirrors, func(i, j int) bool {
@@ -304,4 +306,16 @@ func (m *MirrorZDatabase) Query(cname string) (mirrors []MirrorMapItem, ok bool)
 	mirrors, ok = m.mirrorMap[cname]
 	m.mu.RUnlock()
 	return
+}
+
+// IsUnknown reports whether a repository is marked with the U main status.
+func (m *MirrorZDatabase) IsUnknown(abbr, cname string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, mirror := range m.mirrorMap[NormalizeCname(cname)] {
+		if mirror.Abbr == abbr {
+			return strings.HasPrefix(mirror.Status, "U")
+		}
+	}
+	return false
 }

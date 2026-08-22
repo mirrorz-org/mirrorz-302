@@ -219,6 +219,7 @@ func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requ
 			score := scoring.Eval(endpoint, meta)
 			score.Abbr, score.Delta, score.Repo =
 				abbr, item.Value, item.Path
+			score.Unknown = s.mirrorzd.IsUnknown(abbr, meta.CName)
 			tracer.Printf("    score: %s\n", score)
 			scoresEndpoints = append(scoresEndpoints, score)
 		}
@@ -266,6 +267,12 @@ outerLoop:
 			tracer.Printf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
 
 			if oldResolve == endpoint.Resolve {
+				// Unknown repositories are fallback candidates. Re-score instead of
+				// retaining one from a stale cache when a normal candidate may exist.
+				if s.mirrorzd.IsUnknown(abbr, meta.CName) {
+					tracer.Printf("  error: unknown repository is fallback only\n")
+					continue
+				}
 				if reason := s.outdatedReason(item.Value, deltaCutoff); reason != "" {
 					tracer.Printf("  error: outdated: %s\n", reason)
 					continue

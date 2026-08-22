@@ -56,3 +56,11 @@ func TestScoresJSON(t *testing.T) {
 	as.NotZero(b.Len())
 	as.Nil(err)
 }
+
+func TestUnknownScoreIsFallback(t *testing.T) {
+	preferredByLocation := Score{Geo: 1, Unknown: true}
+	normal := Score{Geo: 1000}
+
+	assert.True(t, normal.Less(preferredByLocation))
+	assert.False(t, preferredByLocation.Less(normal))
+}

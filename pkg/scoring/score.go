@@ -18,6 +18,8 @@ type Score struct {
 	Geo   float64 `json:"geo"`   // geographical distance
 	ISP   int     `json:"isp"`   // matching ISP
 	Delta int     `json:"delta"` // often negative
+	// Unknown repositories are fallback candidates, regardless of other scores.
+	Unknown bool `json:"unknown"`
 
 	// payload
 	Abbr    string `json:"abbr"`
@@ -32,6 +34,9 @@ var zeroScore Score
 //
 // In a list of best scores, Less determines if l should go before r.
 func (l Score) Less(r Score) bool {
+	if l.Unknown != r.Unknown {
+		return !l.Unknown
+	}
 	if l.Pos != r.Pos {
 		return l.Pos > r.Pos
 	}

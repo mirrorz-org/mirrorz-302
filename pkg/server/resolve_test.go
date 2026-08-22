@@ -142,3 +142,74 @@ func TestResolveExistRejectsAbsolutelyOutdatedMirror(t *testing.T) {
 	assert.Empty(t, resolve)
 	assert.Empty(t, repo)
 }
+
+func TestResolveBestUsesUnknownOnlyAsFallback(t *testing.T) {
+	dir := t.TempDir()
+	writeSite := func(name, abbr, status string) {
+		content := `{
+  "extension": "D",
+  "site": {"abbr": "` + abbr + `"},
+  "endpoints": [{
+    "label": "` + abbr + `",
+    "resolve": "` + abbr + `.example.com",
+    "public": true,
+    "filter": ["V4", "SSL"],
+    "range": []
+  }],
+  "mirrors": [{"cname": "repo", "url": "/repo", "status": "` + status + `"}]
+}`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
+	}
+	writeSite("unknown.json", "UNKNOWN", "U")
+	writeSite("normal.json", "NORMAL", "S")
+
+	db := mirrorzdb.NewMirrorZDatabase()
+	require.NoError(t, db.Load(dir))
+	s := &Server{mirrorzd: db, maxRepoStaleness: DefaultMaxRepoStaleness}
+	meta := requestmeta.RequestMeta{
+		CName: "repo", IP: net.ParseIP("192.0.2.1"), Scheme: "https",
+	}
+	ctx := context.WithValue(context.Background(), tracing.Key, tracing.NewTracer(false))
+	res := influxdb.Result{
+		{Mirror: "UNKNOWN", Value: -1, Path: "/repo"},
+		{Mirror: "NORMAL", Value: -10, Path: "/repo"},
+	}
+
+	scores := s.resolveBest(ctx, res, meta, 0)
+	require.Len(t, scores, 2)
+	assert.Equal(t, "NORMAL", scores[0].Abbr)
+	assert.False(t, scores[0].Unknown)
+	assert.Equal(t, "UNKNOWN", scores[1].Abbr)
+	assert.True(t, scores[1].Unknown)
+
+	fallback := s.resolveBest(ctx, res[:1], meta, 0)
+	require.Len(t, fallback, 1)
+	assert.Equal(t, "UNKNOWN", fallback[0].Abbr)
+}
+
+func TestResolveExistDoesNotRetainUnknown(t *testing.T) {
+	dir := t.TempDir()
+	content := `{
+  "extension": "D",
+  "site": {"abbr": "A"},
+  "endpoints": [{
+    "label": "a", "resolve": "a.example.com", "public": true,
+    "filter": ["V4", "SSL"], "range": []
+  }],
+  "mirrors": [{"cname": "repo", "url": "/repo", "status": "U"}]
+}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.json"), []byte(content), 0o600))
+	db := mirrorzdb.NewMirrorZDatabase()
+	require.NoError(t, db.Load(dir))
+	s := &Server{mirrorzd: db, maxRepoStaleness: DefaultMaxRepoStaleness}
+	meta := requestmeta.RequestMeta{
+		CName: "repo", IP: net.ParseIP("192.0.2.1"), Scheme: "https",
+	}
+	ctx := context.WithValue(context.Background(), tracing.Key, tracing.NewTracer(false))
+
+	resolve, repo := s.ResolveExist(ctx,
+		influxdb.Result{{Mirror: "A", Value: -1, Path: "/repo"}},
+		"a.example.com", meta)
+	assert.Empty(t, resolve)
+	assert.Empty(t, repo)
+}
