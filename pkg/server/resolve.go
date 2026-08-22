@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/caching"
 	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
@@ -12,6 +14,29 @@ import (
 	"github.com/mirrorz-org/mirrorz-302/pkg/scoring"
 	"github.com/mirrorz-org/mirrorz-302/pkg/tracing"
 )
+
+const mirrorOfflineThreshold = 5 * time.Minute
+
+// excludeOfflineMirrors sorts monitor results from newest to oldest and drops
+// mirrors whose latest data trails the newest result by five minutes or more.
+// Using a relative watermark means a monitor-wide outage does not exclude every
+// mirror merely because all collected data is old.
+func excludeOfflineMirrors(res influxdb.Result) influxdb.Result {
+	sort.SliceStable(res, func(i, j int) bool {
+		return res[i].Time.After(res[j].Time)
+	})
+	if len(res) == 0 {
+		return res
+	}
+
+	newest := res[0].Time
+	for i, item := range res {
+		if newest.Sub(item.Time) >= mirrorOfflineThreshold {
+			return res[:i]
+		}
+	}
+	return res
+}
 
 func (s *Server) queryInflux(ctx context.Context, cname string) (res influxdb.Result, ok bool) {
 	res, err := s.influx.Query(ctx, cname)
@@ -22,7 +47,7 @@ func (s *Server) queryInflux(ctx context.Context, cname string) (res influxdb.Re
 		s.errorLogger.Warningf("Resolve query error: %v\n", err)
 		// result available, continuing anyway
 	}
-	return res, true
+	return excludeOfflineMirrors(res), true
 }
 
 func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url string, err error) {

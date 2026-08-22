@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/mirrorzdb"
@@ -14,6 +15,38 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExcludeOfflineMirrors(t *testing.T) {
+	newest := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	res := influxdb.Result{
+		{Mirror: "five-minutes-old", Time: newest.Add(-5 * time.Minute)},
+		{Mirror: "newest", Time: newest},
+		{Mirror: "four-minutes-old", Time: newest.Add(-4 * time.Minute)},
+		{Mirror: "much-older", Time: newest.Add(-30 * time.Minute)},
+	}
+
+	filtered := excludeOfflineMirrors(res)
+
+	require.Len(t, filtered, 2)
+	assert.Equal(t, "newest", filtered[0].Mirror)
+	assert.Equal(t, "four-minutes-old", filtered[1].Mirror)
+}
+
+func TestExcludeOfflineMirrorsUsesRelativeTime(t *testing.T) {
+	// Even if the monitor itself has been down for a long time, mirrors with
+	// mutually close timestamps remain available.
+	old := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	res := influxdb.Result{
+		{Mirror: "older", Time: old},
+		{Mirror: "newer", Time: old.Add(time.Minute)},
+	}
+
+	filtered := excludeOfflineMirrors(res)
+
+	require.Len(t, filtered, 2)
+	assert.Equal(t, "newer", filtered[0].Mirror)
+	assert.Equal(t, "older", filtered[1].Mirror)
+}
 
 func TestCalcDeltaCutoff(t *testing.T) {
 	as := assert.New(t)

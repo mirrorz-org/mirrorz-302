@@ -127,6 +127,11 @@ Repository mirrors whose monitor delta is more negative than either the dynamic
 outlier cutoff or `max-repo-staleness` are excluded from scoring. The latter is
 configured in seconds and defaults to 172800 (48 hours).
 
+Monitor results are sorted by their latest data timestamp. A mirror whose data
+is at least five minutes older than the newest mirror is treated as offline and
+excluded. This comparison is relative so a monitor-wide collection outage does
+not make every mirror unavailable.
+
 #### On range when multiple endpoints
 
 ```json
