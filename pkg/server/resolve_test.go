@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -59,7 +62,6 @@ func TestCalcDeltaCutoff(t *testing.T) {
 	// avg = -2, std = 3, zero and positive values are ignored
 	as.Equal(-8, calcDeltaCutoff(payload))
 }
-
 func TestOutdatedReasonAbsoluteLimit(t *testing.T) {
 	s := &Server{maxRepoStaleness: DefaultMaxRepoStaleness}
 
@@ -84,8 +86,7 @@ func TestDeltaCutoffExcludesMirrorsWithoutMatchingEndpoint(t *testing.T) {
 	dir := t.TempDir()
 	writeMirror := func(name, abbr string) {
 		content := `{
-  "extension": "D",
-  "site": {"abbr": "` + abbr + `"},
+  "abbrs": ["` + abbr + `"],
   "endpoints": [{
     "label": "` + abbr + `",
     "resolve": "` + abbr + `.example.com",
@@ -120,8 +121,7 @@ func TestDeltaCutoffExcludesMirrorsWithoutMatchingEndpoint(t *testing.T) {
 func TestResolveExistRejectsAbsolutelyOutdatedMirror(t *testing.T) {
 	dir := t.TempDir()
 	content := `{
-  "extension": "D",
-  "site": {"abbr": "A"},
+  "abbrs": ["A"],
   "endpoints": [{
     "label": "a",
     "resolve": "a.example.com",
@@ -145,23 +145,21 @@ func TestResolveExistRejectsAbsolutelyOutdatedMirror(t *testing.T) {
 
 func TestResolveBestUsesUnknownOnlyAsFallback(t *testing.T) {
 	dir := t.TempDir()
-	writeSite := func(name, abbr, status string) {
+	writeSite := func(name, abbr string) {
 		content := `{
-  "extension": "D",
-  "site": {"abbr": "` + abbr + `"},
+  "abbrs": ["` + abbr + `"],
   "endpoints": [{
     "label": "` + abbr + `",
     "resolve": "` + abbr + `.example.com",
     "public": true,
     "filter": ["V4", "SSL"],
     "range": []
-  }],
-  "mirrors": [{"cname": "repo", "url": "/repo", "status": "` + status + `"}]
+  }]
 }`
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
 	}
-	writeSite("unknown.json", "UNKNOWN", "U")
-	writeSite("normal.json", "NORMAL", "S")
+	writeSite("unknown.json", "UNKNOWN")
+	writeSite("normal.json", "NORMAL")
 
 	db := mirrorzdb.NewMirrorZDatabase()
 	require.NoError(t, db.Load(dir))
@@ -171,7 +169,7 @@ func TestResolveBestUsesUnknownOnlyAsFallback(t *testing.T) {
 	}
 	ctx := context.WithValue(context.Background(), tracing.Key, tracing.NewTracer(false))
 	res := influxdb.Result{
-		{Mirror: "UNKNOWN", Value: -1, Path: "/repo"},
+		{Mirror: "UNKNOWN", Value: 0, Path: "/repo"},
 		{Mirror: "NORMAL", Value: -10, Path: "/repo"},
 	}
 
@@ -190,13 +188,11 @@ func TestResolveBestUsesUnknownOnlyAsFallback(t *testing.T) {
 func TestResolveExistDoesNotRetainUnknown(t *testing.T) {
 	dir := t.TempDir()
 	content := `{
-  "extension": "D",
-  "site": {"abbr": "A"},
+  "abbrs": ["A"],
   "endpoints": [{
     "label": "a", "resolve": "a.example.com", "public": true,
     "filter": ["V4", "SSL"], "range": []
-  }],
-  "mirrors": [{"cname": "repo", "url": "/repo", "status": "U"}]
+  }]
 }`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.json"), []byte(content), 0o600))
 	db := mirrorzdb.NewMirrorZDatabase()
@@ -208,8 +204,60 @@ func TestResolveExistDoesNotRetainUnknown(t *testing.T) {
 	ctx := context.WithValue(context.Background(), tracing.Key, tracing.NewTracer(false))
 
 	resolve, repo := s.ResolveExist(ctx,
-		influxdb.Result{{Mirror: "A", Value: -1, Path: "/repo"}},
+		influxdb.Result{{Mirror: "A", Value: 0, Path: "/repo"}},
 		"a.example.com", meta)
 	assert.Empty(t, resolve)
 	assert.Empty(t, repo)
+}
+
+func TestResolveRepoFromInfluxWithStaticSiteConfig(t *testing.T) {
+	influx := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/query", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"series":[{"name":"repo","tags":{"mirror":"TUNA.NANO","url":"/archlinux"},"columns":["time","value","disable"],"values":[["2026-08-25T00:00:00Z",-1,false]]}]}]}`))
+	}))
+	defer influx.Close()
+
+	dir := t.TempDir()
+	config := `{"abbrs":["TUNA.NANO","TUNA.NEO"],"endpoints":[{"label":"tuna","resolve":"mirrors.tuna.tsinghua.edu.cn","public":true,"filter":["V4","V6","SSL","NOSSL"]}]}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tuna.json"), []byte(config), 0o600))
+
+	s := NewServer(Config{
+		InfluxDB:          influxdb.Config{URL: influx.URL, Database: "mirrorz"},
+		MirrorZDDirectory: dir,
+		DomainLength:      5,
+		CacheTime:         300,
+	})
+	require.NoError(t, s.LoadMirrorZD())
+
+	r := httptest.NewRequest(http.MethodGet, "https://mirrors.cernet.edu.cn/archlinux/iso/latest/", nil)
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Host", "mirrors.cernet.edu.cn")
+	r.Header.Set("X-Real-IP", "192.0.2.1")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, "https://mirrors.tuna.tsinghua.edu.cn/archlinux/iso/latest/", w.Header().Get("Location"))
+}
+
+func TestScoringAPIIncludesEveryConfiguredAbbr(t *testing.T) {
+	dir := t.TempDir()
+	config := `{"abbrs":["TUNA.NANO","TUNA.NEO"],"endpoints":[{"label":"tuna","resolve":"mirrors.tuna.tsinghua.edu.cn","public":true,"filter":["V4","V6","SSL","NOSSL"]}]}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tuna.json"), []byte(config), 0o600))
+
+	s := NewServer(Config{MirrorZDDirectory: dir, DomainLength: 5})
+	require.NoError(t, s.LoadMirrorZD())
+	r := httptest.NewRequest(http.MethodGet, "https://mirrors.cernet.edu.cn/api/scoring", nil)
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Host", "mirrors.cernet.edu.cn")
+	r.Header.Set("X-Real-IP", "192.0.2.1")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var response ScoringAPIResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.Len(t, response.Scores, 2)
+	assert.ElementsMatch(t, []string{"TUNA.NANO", "TUNA.NEO"}, []string{response.Scores[0].Abbr, response.Scores[1].Abbr})
 }

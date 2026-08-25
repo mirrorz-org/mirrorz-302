@@ -35,13 +35,15 @@ In 302-go, users are redirected to a mirror site based on their IP, ISP, geoloca
   - speed testing from multiple AS
   - manually adjust redirection (enable/disable, probability, etc)
 
-## mirrorz.d.json
+## Site configuration
 
-Any mirror site participating in **302 backend** should provide this file. Mirror site uses this file to announce their capabilities and restrictions. It is worth noting this file has no conflict with `mirrorz.json` so a mirror site may integrate them together.
+The redirector loads static site and endpoint configuration from the directory
+set by `mirrorz-d-directory`. Repository availability, paths, status, and
+freshness are supplied separately by mirrorz-monitor through InfluxDB.
 
 ```json
 {
-  "extension": "D",
+  "abbrs": ["USTC"],
   "endpoints": [
     {
       "label": "ustc",
@@ -79,9 +81,7 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
         "2001:da8::/32"
       ]
     }
-  ],
-  "site": { "the same as mirrorz.json/site" },
-  "mirrors": [ "the same as mirrorz.json/mirrors" ]
+  ]
 }
 ```
 
@@ -103,8 +103,8 @@ Any mirror site participating in **302 backend** should provide this file. Mirro
     + ISP: Must start with `ISP`, then a colon, then ISP name. Example: `ISP:CERNET` or `ISP:CHINANET`. Defaults to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
     + ASN (deprecated): Must start with `AS`. Example: `AS4538` and `AS13335`
     + CIDR: Example: `202.0.0.0/24` or `2001:da8::/32`
-* site/mirrors
-  - This is used by mirrorz-monitor. Defined in `mirrorz.json`.
+* `abbrs`
+  - Each value must exactly match the `mirror` tag written by mirrorz-monitor. Multiple monitor abbreviations may share the same endpoint configuration.
 
 ### Note
 

@@ -185,8 +185,7 @@ func (s *Server) ResolveBest(ctx context.Context, meta requestmeta.RequestMeta) 
 
 func (s *Server) resolveBestAll(ctx context.Context, meta requestmeta.RequestMeta) (scores scoring.Scores) {
 	res := make(influxdb.Result, 0)
-	for _, file := range s.mirrorzd.Files() {
-		abbr := file.Site.Abbr
+	for _, abbr := range s.mirrorzd.Abbrs() {
 		res = append(res, influxdb.Item{Mirror: abbr})
 	}
 	return s.resolveBest(ctx, res, meta, 1)
@@ -219,7 +218,8 @@ func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requ
 			score := scoring.Eval(endpoint, meta)
 			score.Abbr, score.Delta, score.Repo =
 				abbr, item.Value, item.Path
-			score.Unknown = s.mirrorzd.IsUnknown(abbr, meta.CName)
+			// mirrorz-monitor encodes the U (unknown) main status as value 0.
+			score.Unknown = item.Value == 0
 			tracer.Printf("    score: %s\n", score)
 			scoresEndpoints = append(scoresEndpoints, score)
 		}
@@ -269,7 +269,7 @@ outerLoop:
 			if oldResolve == endpoint.Resolve {
 				// Unknown repositories are fallback candidates. Re-score instead of
 				// retaining one from a stale cache when a normal candidate may exist.
-				if s.mirrorzd.IsUnknown(abbr, meta.CName) {
+				if item.Value == 0 {
 					tracer.Printf("  error: unknown repository is fallback only\n")
 					continue
 				}

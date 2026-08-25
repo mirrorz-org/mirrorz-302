@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -166,44 +165,20 @@ func (e *Endpoint) MatchIPMask(ip net.IP) (longest int) {
 	return
 }
 
-type Site struct {
-	Abbr string `json:"abbr"`
-}
-
-type MirrorItem struct {
-	CName   string `json:"cname"`
-	URL     string `json:"url"`
-	Status  string `json:"status"`
-	Disable bool   `json:"disable"`
-}
-
-type MirrorZDFile struct {
-	Extension string       `json:"extension"`
-	Endpoints []Endpoint   `json:"endpoints"`
-	Site      Site         `json:"site"`
-	Mirrors   []MirrorItem `json:"mirrors"`
-}
-
-type MirrorMapItem struct {
-	Abbr   string
-	Path   string
-	Status string
+type SiteFile struct {
+	Abbrs     []string   `json:"abbrs"`
+	Endpoints []Endpoint `json:"endpoints"`
 }
 
 type MirrorZDatabase struct {
-	mu        sync.RWMutex
-	files     []MirrorZDFile
-	labelMap  map[string]string
-	abbrMap   map[string]*MirrorZDFile
-	mirrorMap map[string][]MirrorMapItem
+	mu       sync.RWMutex
+	abbrs    []string
+	labelMap map[string]string
+	abbrMap  map[string][]Endpoint
 }
 
 func NewMirrorZDatabase() *MirrorZDatabase {
 	return new(MirrorZDatabase)
-}
-
-func NormalizeCname(cname string) string {
-	return strings.ReplaceAll(cname, "-", "")
 }
 
 func (m *MirrorZDatabase) Load(path string) (err error) {
@@ -214,10 +189,9 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		return
 	}
 
-	newFiles := make([]MirrorZDFile, 0, len(files))
+	newAbbrs := make([]string, 0, len(files))
 	newLabelMap := make(map[string]string)
-	newAbbrMap := make(map[string]*MirrorZDFile)
-	newMirrorMap := make(map[string][]MirrorMapItem)
+	newAbbrMap := make(map[string][]Endpoint)
 
 	for _, file := range files {
 		if !strings.HasSuffix(file.Name(), ".json") {
@@ -225,70 +199,63 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		}
 		content, err := os.ReadFile(filepath.Join(path, file.Name()))
 		if err != nil {
-			logger.Errorf("LoadMirrorZD: read %s failed\n", file.Name())
-			continue
+			return fmt.Errorf("MirrorZDatabase.Load: read %s: %w", file.Name(), err)
 		}
-		var data MirrorZDFile
+		var data SiteFile
 		if err := json.Unmarshal(content, &data); err != nil {
-			logger.Errorf("LoadMirrorZD: Parse %s error: %v\n", file.Name(), err)
-			continue
+			return fmt.Errorf("MirrorZDatabase.Load: parse %s: %w", file.Name(), err)
 		}
-		logger.Infof("%+v\n", data)
-		idx := len(newFiles)
-		newFiles = append(newFiles, data)
-		newAbbrMap[data.Site.Abbr] = &newFiles[idx]
+		if len(data.Abbrs) == 0 {
+			return fmt.Errorf("MirrorZDatabase.Load: %s has no abbrs", file.Name())
+		}
+		if len(data.Endpoints) == 0 {
+			return fmt.Errorf("MirrorZDatabase.Load: %s has no endpoints", file.Name())
+		}
 
-		if len(newFiles[idx].Endpoints) > 0 {
-			siteLabel := newFiles[idx].Endpoints[0].Label
-			for j := range newFiles[idx].Endpoints {
-				newFiles[idx].Endpoints[j].SiteLabel = siteLabel
+		siteLabel := data.Endpoints[0].Label
+		for i := range data.Endpoints {
+			data.Endpoints[i].SiteLabel = siteLabel
+		}
+		for _, abbr := range data.Abbrs {
+			if abbr == "" {
+				return fmt.Errorf("MirrorZDatabase.Load: %s has an empty abbr", file.Name())
 			}
+			if _, exists := newAbbrMap[abbr]; exists {
+				return fmt.Errorf("MirrorZDatabase.Load: duplicate abbr %q", abbr)
+			}
+			newAbbrs = append(newAbbrs, abbr)
+			newAbbrMap[abbr] = data.Endpoints
 		}
 
-		for _, e := range newFiles[idx].Endpoints {
+		for _, e := range data.Endpoints {
 			newLabelMap[e.Label] = e.Resolve
 		}
-
-		for i := range data.Mirrors {
-			data.Mirrors[i].CName = NormalizeCname(data.Mirrors[i].CName)
-			newMirrorMap[data.Mirrors[i].CName] = append(newMirrorMap[data.Mirrors[i].CName], MirrorMapItem{
-				Abbr:   data.Site.Abbr,
-				Path:   data.Mirrors[i].URL,
-				Status: data.Mirrors[i].Status,
-			})
-		}
-		sort.Slice(data.Mirrors, func(i, j int) bool {
-			return data.Mirrors[i].CName < data.Mirrors[j].CName
-		})
 	}
 	for label, resolve := range newLabelMap {
 		logger.Infof("%s -> %s\n", label, resolve)
 	}
 	m.mu.Lock()
-	m.files = newFiles
+	m.abbrs = newAbbrs
 	m.labelMap = newLabelMap
 	m.abbrMap = newAbbrMap
-	m.mirrorMap = newMirrorMap
 	m.mu.Unlock()
 	return
 }
 
-// Files returns all files in the database.
+// Abbrs returns all mirror abbreviations in the database.
 //
 // The returned slice must not be modified.
-func (m *MirrorZDatabase) Files() []MirrorZDFile {
+func (m *MirrorZDatabase) Abbrs() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.files
+	return m.abbrs
 }
 
 // Lookup returns the endpoints of the site.
 func (m *MirrorZDatabase) Lookup(abbr string) (endpoints []Endpoint, ok bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if s, ok := m.abbrMap[abbr]; ok {
-		return s.Endpoints, true
-	}
+	endpoints, ok = m.abbrMap[abbr]
 	return
 }
 
@@ -298,24 +265,4 @@ func (m *MirrorZDatabase) ResolveLabel(label string) (resolve string, ok bool) {
 	resolve, ok = m.labelMap[label]
 	m.mu.RUnlock()
 	return
-}
-
-// Query returns the files of a cname.
-func (m *MirrorZDatabase) Query(cname string) (mirrors []MirrorMapItem, ok bool) {
-	m.mu.RLock()
-	mirrors, ok = m.mirrorMap[cname]
-	m.mu.RUnlock()
-	return
-}
-
-// IsUnknown reports whether a repository is marked with the U main status.
-func (m *MirrorZDatabase) IsUnknown(abbr, cname string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, mirror := range m.mirrorMap[NormalizeCname(cname)] {
-		if mirror.Abbr == abbr {
-			return strings.HasPrefix(mirror.Status, "U")
-		}
-	}
-	return false
 }

@@ -63,7 +63,7 @@ func main() {
 
 	s := server.NewServer(config)
 	if err := s.LoadMirrorZD(); err != nil {
-		logger.Errorf("Cannot load mirrorz.d.json: %v\n", err)
+		logger.Errorf("Cannot load site configuration: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -80,8 +80,10 @@ func main() {
 		for sig := range signalChannel {
 			switch sig {
 			case syscall.SIGHUP:
-				logger.Infof("Got A HUP Signal! Now Reloading mirrorz.d.json....\n")
-				s.LoadMirrorZD()
+				logger.Infof("Got A HUP Signal! Now Reloading site configuration....\n")
+				if err := s.LoadMirrorZD(); err != nil {
+					logger.Errorf("Cannot reload site configuration: %v\n", err)
+				}
 			case syscall.SIGUSR1:
 				logger.Infof("Got A USR1 Signal! Now Reloading config.json....\n")
 				LoadConfig(*configPtr)

@@ -2,8 +2,6 @@ package mirrorzdb
 
 import (
 	"net"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
@@ -16,27 +14,6 @@ func mustCIDR(t *testing.T, s string) *net.IPNet {
 		t.Fatalf("ParseCIDR(%s): %v", s, err)
 	}
 	return n
-}
-
-func TestIsUnknown(t *testing.T) {
-	dir := t.TempDir()
-	content := `{
-  "extension": "D",
-  "site": {"abbr": "TEST"},
-  "mirrors": [
-    {"cname": "unknown-repo", "url": "/unknown", "status": "U"},
-    {"cname": "unknown-with-aux", "url": "/unknown-aux", "status": "UN123"},
-    {"cname": "normal", "url": "/normal", "status": "S123"}
-  ]
-}`
-	assert.NoError(t, os.WriteFile(filepath.Join(dir, "test.json"), []byte(content), 0o600))
-	db := NewMirrorZDatabase()
-	assert.NoError(t, db.Load(dir))
-
-	assert.True(t, db.IsUnknown("TEST", "unknown-repo"))
-	assert.True(t, db.IsUnknown("TEST", "unknown-with-aux"))
-	assert.False(t, db.IsUnknown("TEST", "normal"))
-	assert.False(t, db.IsUnknown("OTHER", "unknown-repo"))
 }
 
 // v4HTTPEndpoint builds a generic IPv4 HTTP-capable endpoint, ready for the

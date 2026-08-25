@@ -5,7 +5,7 @@ influxdb:
   password: dQw4w9WgXcQ
 ipdb-file: /dev/urandom
 http-bind-address: 127.0.0.1:8888
-mirrorz-d-directory: mirrorz.d
+mirrorz-d-directory: /path/to/mirrorz-config/d-extension/sites
 homepage: mirrorz.org
 domain-length: 5
 cache-time: 300
