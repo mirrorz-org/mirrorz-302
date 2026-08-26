@@ -123,6 +123,53 @@ freshness are supplied separately by mirrorz-monitor through InfluxDB.
    curl https://mirrors.cernet.edu.cn/api/scoring | jq .
    ```
 
+#### Package-manager mirror lists
+
+The Go backend exposes separate mirror-list formats for APT and RPM clients.
+Both lists contain every eligible endpoint in scoring order and omit duplicate
+repository URLs.
+
+APT 1.6 or newer can use the APT-specific list through the `mirror+https`
+transport. For example, replace `debian` with the repository cname where
+necessary:
+
+```text
+deb mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/debian bookworm main
+```
+
+The equivalent deb822 source is:
+
+```text
+Types: deb
+URIs: mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/debian
+Suites: bookworm
+Components: main
+```
+
+The APT response assigns `priority:1` to the highest-scoring URL and increasing
+priority numbers to the remaining fallback URLs.
+
+DNF and DNF5 can use the RPM-specific endpoint as a regular `mirrorlist`.
+RPM repository variables are expanded by DNF before it requests the list, so a
+repository-specific path can follow the cname. For example:
+
+```ini
+[rocky-baseos]
+name=Rocky Linux BaseOS
+mirrorlist=https://mirrors.cernet.edu.cn/api/rpm/mirrorlist/rocky/$releasever/BaseOS/$basearch/os
+enabled=1
+gpgcheck=1
+```
+
+The RPM response is a plain URL-per-line list in scoring order. DNF normally
+uses this as its initial order, but `fastestmirror=True` deliberately overrides
+the server-provided order. The server uses only the cname (`rocky` above) to
+select and cache mirrors, then safely appends the expanded repository path to
+each URL. RPM metalink output is not currently provided.
+
+Both endpoints accept `GET` and `HEAD`. Query parameters such as DNF's
+`countme` are accepted but are not copied into the returned repository URLs.
+
 Repository mirrors whose monitor delta is more negative than either the dynamic
 outlier cutoff or `max-repo-staleness` are excluded from scoring. The latter is
 configured in seconds and defaults to 172800 (48 hours).
