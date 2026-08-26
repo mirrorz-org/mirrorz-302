@@ -193,27 +193,27 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 	newLabelMap := make(map[string]string)
 	newAbbrMap := make(map[string][]Endpoint)
 
-	for _, file := range folders {
-		if !file.IsDir() {
+	for _, site := range folders {
+		if !site.IsDir() {
 			continue
 		}
-		configPath := filepath.Join(path, file.Name(), "config.json")
+		configPath := filepath.Join(path, site.Name(), "config.json")
 		content, err := os.ReadFile(configPath)
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return fmt.Errorf("MirrorZDatabase.Load: read %s/config.json: %w", file.Name(), err)
+			return fmt.Errorf("MirrorZDatabase.Load: read %s/config.json: %w", site.Name(), err)
 		}
 		var data SiteFile
 		if err := json.Unmarshal(content, &data); err != nil {
-			return fmt.Errorf("MirrorZDatabase.Load: parse %s/config.json: %w", file.Name(), err)
+			return fmt.Errorf("MirrorZDatabase.Load: parse %s/config.json: %w", site.Name(), err)
 		}
 		if len(data.Abbrs) == 0 {
-			return fmt.Errorf("MirrorZDatabase.Load: %s/config.json has no abbrs", file.Name())
+			return fmt.Errorf("MirrorZDatabase.Load: %s/config.json has no abbrs", site.Name())
 		}
 		if len(data.Endpoints) == 0 {
-			return fmt.Errorf("MirrorZDatabase.Load: %s/config.json has no endpoints", file.Name())
+			return fmt.Errorf("MirrorZDatabase.Load: %s/config.json has no endpoints", site.Name())
 		}
 
 		siteLabel := data.Endpoints[0].Label
@@ -222,7 +222,7 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		}
 		for _, abbr := range data.Abbrs {
 			if abbr == "" {
-				return fmt.Errorf("MirrorZDatabase.Load: %s/config.json has an empty abbr", file.Name())
+				return fmt.Errorf("MirrorZDatabase.Load: %s/config.json has an empty abbr", site.Name())
 			}
 			if _, exists := newAbbrMap[abbr]; exists {
 				return fmt.Errorf("MirrorZDatabase.Load: duplicate abbr %q", abbr)
