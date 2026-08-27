@@ -26,7 +26,7 @@ func Eval(e mirrorzdb.Endpoint, m requestmeta.RequestMeta) (score Score) {
 	}
 
 	for _, isp := range m.ISP {
-		if e.MatchISP(isp) {
+		if mirrorzdb.MatchISP(isp, e.RangeISP) {
 			score.ISP = 1
 		}
 	}
