@@ -15,29 +15,28 @@ import (
 
 var logger = logging.GetLogger("mirrorzdb")
 
+type PrivateRange struct {
+	Region string
+	ISP    string
+}
+
 type Endpoint struct {
 	Label   string
 	Resolve string
 	Public  bool
 	Filter  struct {
-		V4           bool
-		V4Only       bool
-		V6           bool
-		V6Only       bool
-		SSL          bool
-		NOSSL        bool
-		Special      []string
-		Region       []string
-		RegionOption bool
-		ISP          []string
-		ISPOption    bool
+		V4      bool
+		V4Only  bool
+		V6      bool
+		V6Only  bool
+		SSL     bool
+		NOSSL   bool
+		Special []string
 	}
-	RangeOption       bool
-	RangeRegion       []string
-	RangeRegionOption bool
-	RangeISP          []string
-	RangeISPOption    bool
-	RangeCIDR         []*net.IPNet
+	PrivateRanges []PrivateRange
+	RangeRegion   []string
+	RangeISP      []string
+	RangeCIDR     []*net.IPNet
 	// SiteLabel is the representative label of the site this endpoint
 	// belongs to (the first endpoint's label), set during Load. It is
 	// used so that `avoid<SiteLabel>` excludes the whole site.
@@ -46,11 +45,12 @@ type Endpoint struct {
 
 // endpointJSON is used to parse Endpoint from JSON.
 type endpointJSON struct {
-	Label   string   `json:"label"`
-	Resolve string   `json:"resolve"`
-	Public  bool     `json:"public"`
-	Filter  []string `json:"filter"`
-	Range   []string `json:"range"`
+	Label        string     `json:"label"`
+	Resolve      string     `json:"resolve"`
+	Public       bool       `json:"public"`
+	PrivateRange [][]string `json:"private_range"`
+	Filter       []string   `json:"filter"`
+	Range        []string   `json:"range"`
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
@@ -76,24 +76,30 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 		case "SSL":
 			e.Filter.SSL = true
 		default:
-			if region, ok := strings.CutPrefix(d, "REGION:"); ok {
-				e.Filter.Region = append(e.Filter.Region, region)
-			} else if isp, ok := strings.CutPrefix(d, "ISP:"); ok {
-				e.Filter.ISP = append(e.Filter.ISP, isp)
-			} else {
-				// TODO: more structured
-				e.Filter.Special = append(e.Filter.Special, d)
-			}
-
+			// TODO: more structured
+			e.Filter.Special = append(e.Filter.Special, d)
 		}
 	}
-	e.Filter.ISPOption = e.Filter.ISP != nil
-	e.Filter.RegionOption = e.Filter.Region != nil
 	if e.Filter.V4 && !e.Filter.V6 {
 		e.Filter.V4Only = true
 	}
 	if !e.Filter.V4 && e.Filter.V6 {
 		e.Filter.V6Only = true
+	}
+	// private_range
+	for _, ds := range j.PrivateRange {
+		pr := PrivateRange{}
+		for _, d := range ds {
+			if region, ok := strings.CutPrefix(d, "REGION:"); ok {
+				pr.Region = region
+			} else if isp, ok := strings.CutPrefix(d, "ISP:"); ok {
+				pr.ISP = isp
+			} else {
+				// Unknown format
+				logger.Warningf("unknown private range format: %s", d)
+			}
+		}
+		e.PrivateRanges = append(e.PrivateRanges, pr)
 	}
 	// Range
 	for _, d := range j.Range {
@@ -108,8 +114,6 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 			}
 		}
 	}
-	e.RangeISPOption = e.RangeISP != nil
-	e.RangeRegionOption = e.RangeRegion != nil
 	return nil
 }
 
@@ -126,6 +130,24 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 
 	remoteIPv4 := m.IP.To4() != nil
 
+	// Special filters for private range
+	if !e.Public && e.MatchIPMask(m.IP) == 0 {
+		if e.PrivateRanges == nil {
+			return "ip not in cidr range", false
+		}
+		var status = false
+		for _, pr := range e.PrivateRanges {
+			if (pr.Region == "" || pr.Region == m.Region) &&
+				(pr.ISP == "" || MatchISP(pr.ISP, m.ISP)) {
+				status = true
+				break
+			}
+		}
+		if !status {
+			return "ip not in private range", false
+		}
+	}
+
 	switch {
 	case remoteIPv4 && !e.Filter.V4:
 		return "not v4 endpoint", false
@@ -139,54 +161,15 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 		return "label v4only but endpoint not v4only", false
 	case m.V6Only() && !e.Filter.V6Only:
 		return "label v6only but endpoint not v6only", false
-	// Special filters for private site
-	case !e.Public && e.MatchIPMask(m.IP) == 0:
-		// Request must be included in filtered region AND ISP
-		if e.Filter.ISPOption || e.Filter.RegionOption {
-			if (e.Filter.RegionOption && !MatchRegion(m.Region, e.Filter.Region)) ||
-				(e.Filter.ISPOption && !MatchISPs(m.ISP, e.Filter.ISP)) {
-				return "ip not in filtered range", false
-			}
-			// Request should be included in filtered region OR ISP
-		} else if e.RangeISPOption || e.RangeRegionOption {
-			if (!e.RangeRegionOption || !MatchRegion(m.Region, e.RangeRegion)) &&
-				(!e.RangeISPOption || !MatchISPs(m.ISP, e.RangeISP)) {
-				return "ip not in private range", false
-			}
-		} else {
-			// This site may not define any region or isp rules
-			return "ip not in cidr range", false
-		}
-		return "OK", true
 	default:
 		return "OK", true
 	}
-}
-
-// MatchRegion reports if the given region is in the config of the endpoint
-func MatchRegion(region string, regions []string) bool {
-	for _, r := range regions {
-		if r == region {
-			return true
-		}
-	}
-	return false
 }
 
 // MatchISP reports if the given ISP is in the config of the endpoint.
 func MatchISP(isp string, isps []string) bool {
 	for _, r := range isps {
 		if r == isp {
-			return true
-		}
-	}
-	return false
-}
-
-// MatchISPs reports if the given ISP set intersects with the endpoint's preference.
-func MatchISPs(isps1 []string, isps2 []string) bool {
-	for _, isp := range isps1 {
-		if MatchISP(isp, isps2) {
 			return true
 		}
 	}
