@@ -29,7 +29,7 @@ In 302-go, users are redirected to a mirror site based on their IP, ISP, geoloca
 * mirror site
   - endpoint: multiple upstreams (CERNET, CMNET, etc), ipv4/ipv6 only endpoint, and default endpoint
   - range: users inside this range should better be redirected to this mirror site
-  - public: private mirror has limited access range. a private mirror must define range in CIDR, ISP, or REGION. If no range is defined, the mirror is treated as disabled and will not serve any request.
+  - public: private mirror has limited access range, IP not in its CIDR range should not be redirected there. A private mirror must declare at least one CIDR in `range`, otherwise it is treated as disabled.
 * operator (not implemented)
   - load balance
   - speed testing from multiple AS
@@ -75,12 +75,7 @@ freshness are supplied separately by mirrorz-monitor through InfluxDB.
       "label": "ustccampus",
       "public": false,
       "resolve": "10.0.0.1:8080/proxy",
-      "filter": [ 
-        "V4",
-        "NOSSL",
-        "REGION:AH",
-        "ISP:CERNET"
-      ],
+      "filter": [ "V4", "NOSSL" ],
       "range": [
         "202.0.0.0/24",
         "2001:da8::/32"
@@ -97,6 +92,10 @@ freshness are supplied separately by mirrorz-monitor through InfluxDB.
   - `resolve`: a domain name or IP address. This is directly concatenated in the final URL so a subpath may also be provided (e.g. `linux.xidian.edu.cn/mirrors` and `10.0.0.1:8080/proxy`).
     + It should not end with slash `/` as the request path `/archlinux/iso` will be directly concatenated to it.
   - `public`: the endpoint can be reached outside of its range. Usually `false` for campus-only mirrors. When `public: false` and `range` declares no CIDR, the endpoint is treated as disabled and never serves any request.
+  - `private_range` Used **only when `public` is `false`**. It controls access when the client IP does **not** match any CIDR in `range`.
+    - **Format**: `[["REGION:...", "ISP:..."], ...]` (a 2D string array).
+    - Each inner array is a **group**; all specified conditions inside must match (logical **AND**).
+    - The request is allowed if **any** group matches (logical **OR**); otherwise denied.
   - `filter`: Each endpoint has many capabilities
     + `SSL`: HTTPS available
     + `NOSSL`: HTTP available, and does not redirect to HTTPS when accessing repos
@@ -169,30 +168,25 @@ If a user does not match any range or match exactly the same in `mirrors` and `m
 #### On range when private endpoint
 
 ```json
-{
-  "label": "ustccampus",
+  {
+  "label": "zju",
   "public": false,
-  "resolve": "10.0.0.1:8080/proxy",
-  "filter": [
-    "V4",
-    "NOSSL",
-    "REGION:AH",
-    "ISP:CERNET"
+  "resolve": "mirrors.zju.edu.cn",
+  "filter": ["V4", "V6", "SSL", "NOSSL"],
+  "private_range": [
+    ["REGION:ZJ"]
   ],
   "range": [
-    "202.0.0.0/24",
-    "2001:da8::/32"
+    "COUNTRY:CN",
+    "REGION:ZJ",
+    "210.32.0.0/20",
+    "some other CIDR"
   ]
 }
 ```
-* `public`: the endpoint can be reached outside of its range. Usually `false` for campus‑only mirrors. For private endpoints (`public: false`), access is restricted and follows the sequential rules below:
+The site may use `private_range` to control access for users outside of its `range`. when `public` is `false`, the endpoint will only serve users whose IP falls in its `range`. For users outside CIDRs in `range`, it will check if they match any group in `private_range`. If yes, then the request is allowed; otherwise denied.
+As follows, a user from Zhejiang will be possible to be redirected to this endpoint, while a user from Shanghai will be denied.
 
-  1. **CIDR priority** – if any CIDR is declared in `range` and the client IP matches one of them, the endpoint is allowed (this takes precedence over all other checks).
-  2. **Filter (AND)** – if the IP does NOT match any CIDR, and `filter` contains `REGION` or `ISP` conditions, then all such conditions must match (AND) for the endpoint to be allowed. If they match, access is granted without examining `range` further.
-  3. **Range (OR)** – if `filter` contains NO `REGION`/`ISP`, but `range` contains `REGION` or `ISP`, then at least one of those must match (OR) for the endpoint to be allowed.
-  4. **Disabled** – if NO CIDR matched, and NO `REGION`/`ISP` is defined in either `filter` or `range`, the endpoint is considered disabled and will never serve the request.
-
-ISP and REGION in `filter` only affect access for private endpoints.
 #### TODO
 
 **Advanced** user can explicitly annouce their capability in their request like `http://ssl.mirrors.edu.cn`, then we must redirect it to a https site. Some interesting usage like `https://sjtug-nossl-wsyu-ssl-ustc-tuna.mirrors.edu.cn`, namely no preference (http and https both ok) for sjtug, use http endpoint for wsyu, and force ssl for ustc and tuna.
