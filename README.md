@@ -91,8 +91,8 @@ freshness are supplied separately by mirrorz-monitor through InfluxDB.
   - `label`: a unique identifier for this endpoint
   - `resolve`: a domain name or IP address. This is directly concatenated in the final URL so a subpath may also be provided (e.g. `linux.xidian.edu.cn/mirrors` and `10.0.0.1:8080/proxy`).
     + It should not end with slash `/` as the request path `/archlinux/iso` will be directly concatenated to it.
-  - `public`: the endpoint can be reached outside of its range. Usually `false` for campus-only mirrors. When `public: false` and `range` declares no CIDR, the endpoint is treated as disabled and never serves any request.
-  - `private_range` Used **only when `public` is `false`**. It controls access when the client IP does **not** match any CIDR in `range`.
+  - `public`: when `true`, `range` only affects preference scoring. When `false`, matching CIDR entries in `range` can access it, and users outside those CIDRs may still be allowed by `private_range`. If `range` has no CIDR, access is determined by `private_range`.
+  - `private_range`: used **only when `public` is `false`**. It controls access for clients whose IP does **not** match any CIDR in `range`, and can also be the only access rule when `range` has no CIDR.
     - **Format**: `[["REGION:...", "ISP:..."], ...]` (a 2D string array).
     - Each inner array is a **group**; all specified conditions inside must match (logical **AND**).
     - The request is allowed if **any** group matches (logical **OR**); otherwise denied.
@@ -101,7 +101,7 @@ freshness are supplied separately by mirrorz-monitor through InfluxDB.
     + `NOSSL`: HTTP available, and does not redirect to HTTPS when accessing repos
     + `V4`: IPv4 available (A record)
     + `V6`: IPv6 available (AAAA record)
-  - `range`: when `public`, the endpoint **prefers** these ranges, other user may still use this endpoint; otherwise it **only serves** clients whose IP falls in one of the declared CIDRs. ISP and REGION do not grant access for private endpoints (they are only used for preference scoring when `public`). If no CIDR is declared, the endpoint is disabled.
+  - `range`: when `public` is `true`, the endpoint **prefers** these ranges more strongly, but other users may still use this endpoint; when `public` is `false`, CIDR entries still allow access, while `ISP` and `REGION` do not. `ISP` and `REGION` are only effective inside `private_range`. If no CIDR is declared, `private_range` may still allow access.
     + COUNTRY: Must start with `COUNTRY`, then a colon, then [ISO country code](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2). Example: `COUNTRY:CN` or `COUNTRY:US`. Defaults to `CN`.
     + REGION: Must start with `REGION`, then a colon, then province name (GB/T 2260-2007). Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai). Defaults to `BJ`.
     + ISP: Must start with `ISP`, then a colon, then ISP name. Example: `ISP:CERNET` or `ISP:CHINANET`. Defaults to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
@@ -184,7 +184,7 @@ If a user does not match any range or match exactly the same in `mirrors` and `m
   ]
 }
 ```
-The site may use `private_range` to control access for users outside of its `range`. when `public` is `false`, the endpoint will only serve users whose IP falls in its `range`. For users outside CIDRs in `range`, it will check if they match any group in `private_range`. If yes, then the request is allowed; otherwise denied.
+The site may use `private_range` to control access for users outside of its CIDR `range`. when `public` is `false`, CIDR matches are allowed directly. If `range` has no CIDR, access is decided by `private_range`. For users outside CIDRs in `range`, it will check if they match any group in `private_range`. If yes, then the request is allowed; otherwise denied.
 As follows, a user from Zhejiang will be possible to be redirected to this endpoint, while a user from Shanghai will be denied.
 
 #### TODO
