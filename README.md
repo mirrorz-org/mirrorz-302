@@ -18,6 +18,31 @@ In 302-js, users are just redirected to a mirror site with the most up-to-date i
 
 In 302-go, users are redirected to a mirror site based on their IP, ISP, geolocation etc. Detailed concern is discussed below.
 
+## Runtime signals
+
+The running service handles the following signals:
+
+* `SIGHUP` reloads the site and endpoint configuration from
+  `mirrorz-d-directory`. The new configuration replaces the live database only
+  after it has been loaded successfully; otherwise the previous configuration
+  remains active.
+* `SIGUSR1` reads the main YAML configuration file, but currently does not apply
+  the result to the running server. Restart `mirrorzd` to apply changes to the
+  main configuration.
+* `SIGUSR2` reopens log files and is intended for use by log rotation.
+* `SIGWINCH` clears the redirect result cache.
+
+To reload only the site configuration under systemd, run:
+
+```shell
+systemctl reload mirrorzd.service
+```
+
+The supplied unit implements this by sending `SIGHUP` to its main process. Do
+not implement reload by rapidly sending both `SIGUSR1` and `SIGHUP`: the main
+configuration would still not be applied, and the process does not guarantee
+that both signals will be handled.
+
 ## design concern
 
 * user
