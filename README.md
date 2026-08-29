@@ -65,8 +65,6 @@ freshness are supplied separately by mirrorz-monitor through InfluxDB.
       "resolve": "chinanet.mirrors.ustc.edu.cn",
       "filter": [ "V4", "SSL", "NOSSL" ],
       "range": [
-        "AS4134",
-        "AS4809",
         "REGION:AH",
         "ISP:CHINANET"
       ]
@@ -96,16 +94,16 @@ freshness are supplied separately by mirrorz-monitor through InfluxDB.
     - **Format**: `[["REGION:...", "ISP:..."], ...]` (a 2D string array).
     - Each inner array is a **group**; all specified conditions inside must match (logical **AND**).
     - The request is allowed if **any** group matches (logical **OR**); otherwise denied.
+    - Each group may contain at most one `REGION` and one `ISP`. Empty groups, empty values, duplicate conditions, and unknown condition types make the site configuration invalid.
+    - REGION/ISP access requires a successful lookup from a loaded IPDB. If geolocation is unavailable, `private_range` does not grant access.
   - `filter`: Each endpoint has many capabilities
     + `SSL`: HTTPS available
     + `NOSSL`: HTTP available, and does not redirect to HTTPS when accessing repos
     + `V4`: IPv4 available (A record)
     + `V6`: IPv6 available (AAAA record)
-  - `range`: when `public` is `true`, the endpoint **prefers** these ranges more strongly, but other users may still use this endpoint; when `public` is `false`, CIDR entries still allow access, while `ISP` and `REGION` do not. `ISP` and `REGION` are only effective inside `private_range`. If no CIDR is declared, `private_range` may still allow access.
-    + COUNTRY: Must start with `COUNTRY`, then a colon, then [ISO country code](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2). Example: `COUNTRY:CN` or `COUNTRY:US`. Defaults to `CN`.
-    + REGION: Must start with `REGION`, then a colon, then province name (GB/T 2260-2007). Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai). Defaults to `BJ`.
-    + ISP: Must start with `ISP`, then a colon, then ISP name. Example: `ISP:CERNET` or `ISP:CHINANET`. Defaults to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
-    + ASN (deprecated): Must start with `AS`. Example: `AS4538` and `AS13335`
+  - `range`: describes endpoint preferences and CIDR access rules. For a public endpoint, matching REGION, ISP, or CIDR entries improve its score, but non-matching clients may still use it. For a private endpoint, a matching CIDR grants access directly; REGION and ISP entries may affect scoring after the endpoint is eligible, but do not grant access. If no CIDR matches, `private_range` may still grant access.
+    + REGION: Must start with `REGION`, then a colon, then a province code (GB/T 2260-2007). Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai).
+    + ISP: Must start with `ISP`, then a colon, then an ISP name. Example: `ISP:CERNET` or `ISP:CHINANET`. Supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
     + CIDR: Example: `202.0.0.0/24` or `2001:da8::/32`
 * `abbrs`
   - Each value must exactly match the `mirror` tag written by mirrorz-monitor. Multiple monitor abbreviations may share the same endpoint configuration.
@@ -168,7 +166,7 @@ If a user does not match any range or match exactly the same in `mirrors` and `m
 #### On range when private endpoint
 
 ```json
-  {
+{
   "label": "zju",
   "public": false,
   "resolve": "mirrors.zju.edu.cn",
@@ -177,15 +175,12 @@ If a user does not match any range or match exactly the same in `mirrors` and `m
     ["REGION:ZJ"]
   ],
   "range": [
-    "COUNTRY:CN",
-    "REGION:ZJ",
-    "210.32.0.0/20",
-    "some other CIDR"
+    "210.32.0.0/20"
   ]
 }
 ```
-The site may use `private_range` to control access for users outside of its CIDR `range`. when `public` is `false`, CIDR matches are allowed directly. If `range` has no CIDR, access is decided by `private_range`. For users outside CIDRs in `range`, it will check if they match any group in `private_range`. If yes, then the request is allowed; otherwise denied.
-As follows, a user from Zhejiang will be possible to be redirected to this endpoint, while a user from Shanghai will be denied.
+
+The site may use `private_range` to control access for users outside of its CIDR `range`. When `public` is `false`, CIDR matches are allowed directly. For users outside those CIDRs, each `private_range` group is checked. In this example, clients in `210.32.0.0/20` are allowed directly, and other clients are allowed only when the IPDB identifies them as being in Zhejiang.
 
 #### TODO
 
