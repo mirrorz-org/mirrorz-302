@@ -89,15 +89,27 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 	// private_range
 	for _, ds := range j.PrivateRange {
 		pr := PrivateRange{}
+		seenRegion, seenISP := false, false
 		for _, d := range ds {
 			if region, ok := strings.CutPrefix(d, "REGION:"); ok {
+				if seenRegion {
+					logger.Warningf("duplicate REGION in private_range group: %s", d)
+				}
+				seenRegion = true
 				pr.Region = region
 			} else if isp, ok := strings.CutPrefix(d, "ISP:"); ok {
+				if seenISP {
+					logger.Warningf("duplicate ISP in private_range group: %s", d)
+				}
+				seenISP = true
 				pr.ISP = isp
 			} else {
-				// Unknown format
 				logger.Warningf("unknown private range format: %s", d)
 			}
+		}
+		if pr.Region == "" && pr.ISP == "" {
+			logger.Warningf("empty private_range group ignored")
+			continue
 		}
 		e.PrivateRanges = append(e.PrivateRanges, pr)
 	}
