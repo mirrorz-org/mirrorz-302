@@ -1,6 +1,7 @@
 package mirrorzdb
 
 import (
+	"encoding/json"
 	"net"
 	"testing"
 
@@ -82,4 +83,58 @@ func TestMatchPrivateEndpoint(t *testing.T) {
 	reason, ok = e.Match(meta)
 	as.True(ok)
 	as.Equal("OK", reason)
+}
+
+func TestMatchPrivateRangeRequiresKnownGeo(t *testing.T) {
+	e := v4HTTPEndpoint()
+	e.PrivateRanges = []PrivateRange{{Region: "ZJ", ISP: "CERNET"}}
+
+	meta := requestmeta.RequestMeta{
+		IP:       net.ParseIP("192.0.2.1"),
+		Scheme:   "http",
+		Region:   "ZJ",
+		ISP:      []string{"CERNET"},
+		GeoKnown: false,
+	}
+	reason, ok := e.Match(meta)
+	assert.False(t, ok)
+	assert.Contains(t, reason, "geolocation unavailable")
+
+	meta.GeoKnown = true
+	reason, ok = e.Match(meta)
+	assert.True(t, ok, reason)
+
+	meta.ISP = []string{"CHINANET"}
+	reason, ok = e.Match(meta)
+	assert.False(t, ok)
+	assert.Contains(t, reason, "not in private range")
+}
+
+func TestPrivateRangeDoesNotRestrictCIDRMatch(t *testing.T) {
+	e := v4HTTPEndpoint()
+	e.RangeCIDR = []*net.IPNet{mustCIDR(t, "192.0.2.0/24")}
+	e.PrivateRanges = []PrivateRange{{Region: "ZJ"}}
+
+	reason, ok := e.Match(requestmeta.RequestMeta{
+		IP:     net.ParseIP("192.0.2.1"),
+		Scheme: "http",
+	})
+	assert.True(t, ok, reason)
+}
+
+func TestRejectInvalidPrivateRange(t *testing.T) {
+	tests := map[string]string{
+		"empty group":       `{"private_range":[[]]}`,
+		"unknown condition": `{"private_range":[["IPS:CERNET"]]}`,
+		"empty region":      `{"private_range":[["REGION:"]]}`,
+		"empty isp":         `{"private_range":[["ISP:"]]}`,
+		"duplicate region":  `{"private_range":[["REGION:ZJ","REGION:SH"]]}`,
+		"duplicate isp":     `{"private_range":[["ISP:CERNET","ISP:CHINANET"]]}`,
+	}
+	for name, data := range tests {
+		t.Run(name, func(t *testing.T) {
+			var endpoint Endpoint
+			assert.Error(t, json.Unmarshal([]byte(data), &endpoint))
+		})
+	}
 }

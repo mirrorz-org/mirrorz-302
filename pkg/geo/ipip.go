@@ -21,6 +21,11 @@ var DefaultCityInfo = CityInfo{
 
 var logger = logging.GetLogger("ipip")
 
+// Available reports whether an IP database has been loaded successfully.
+func Available() bool {
+	return db.Load() != nil
+}
+
 // LoadIPDB loads a new IPIP database.
 func LoadIPDB(filename string) error {
 	newdb, err := ipdb.NewCity(filename)

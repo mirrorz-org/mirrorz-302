@@ -87,29 +87,34 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 		e.Filter.V6Only = true
 	}
 	// private_range
-	for _, ds := range j.PrivateRange {
+	for groupIndex, ds := range j.PrivateRange {
+		if len(ds) == 0 {
+			return fmt.Errorf("private_range group %d is empty", groupIndex)
+		}
 		pr := PrivateRange{}
 		seenRegion, seenISP := false, false
 		for _, d := range ds {
 			if region, ok := strings.CutPrefix(d, "REGION:"); ok {
+				if region == "" {
+					return fmt.Errorf("private_range group %d has an empty REGION", groupIndex)
+				}
 				if seenRegion {
-					logger.Warningf("duplicate REGION in private_range group: %s", d)
+					return fmt.Errorf("private_range group %d has duplicate REGION conditions", groupIndex)
 				}
 				seenRegion = true
 				pr.Region = region
 			} else if isp, ok := strings.CutPrefix(d, "ISP:"); ok {
+				if isp == "" {
+					return fmt.Errorf("private_range group %d has an empty ISP", groupIndex)
+				}
 				if seenISP {
-					logger.Warningf("duplicate ISP in private_range group: %s", d)
+					return fmt.Errorf("private_range group %d has duplicate ISP conditions", groupIndex)
 				}
 				seenISP = true
 				pr.ISP = isp
 			} else {
-				logger.Warningf("unknown private range format: %s", d)
+				return fmt.Errorf("private_range group %d has unknown condition %q", groupIndex, d)
 			}
-		}
-		if pr.Region == "" && pr.ISP == "" {
-			logger.Warningf("empty private_range group ignored")
-			continue
 		}
 		e.PrivateRanges = append(e.PrivateRanges, pr)
 	}
@@ -144,10 +149,16 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 
 	// Special filters for private range
 	if !e.Public && e.MatchIPMask(m.IP) == 0 {
-		if e.PrivateRanges == nil {
-			return "ip not in cidr range", false
+		if len(e.PrivateRanges) == 0 {
+			if len(e.RangeCIDR) == 0 {
+				return "private endpoint without access range (disabled)", false
+			}
+			return "ip not in private cidr range", false
 		}
-		var status = false
+		if !m.GeoKnown {
+			return "geolocation unavailable for private range", false
+		}
+		status := false
 		for _, pr := range e.PrivateRanges {
 			if (pr.Region == "" || pr.Region == m.Region) &&
 				(pr.ISP == "" || MatchISP(pr.ISP, m.ISP)) {
