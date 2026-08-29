@@ -16,9 +16,12 @@ type RequestMeta struct {
 
 	Scheme string
 	IP     net.IP
-	Region string
-	ISP    []string
-	Labels []string
+	// GeoKnown indicates that Region and ISP came from a loaded IP database,
+	// rather than the placeholder returned by geo.Lookup without one.
+	GeoKnown bool
+	Region   string
+	ISP      []string
+	Labels   []string
 }
 
 const ApiPrefix = "/api/"
@@ -43,7 +46,8 @@ func (p *Parser) parseCommon(r *http.Request, meta *RequestMeta) {
 	ipinfo, err := geo.Lookup(meta.IP.String())
 	if err != nil {
 		parserLogger.Warningf("IPDB lookup failed for %s: %v\n", meta.IP, err)
-	} else {
+	} else if ipinfo != nil {
+		meta.GeoKnown = geo.Available()
 		meta.Region = geo.NameToCode(ipinfo.RegionName)
 		for _, line := range strings.Split(ipinfo.Line, "/") {
 			if isp := geo.ISPNameToCode(line); isp != "" {
@@ -63,7 +67,7 @@ func (m *RequestMeta) V6Only() bool {
 	return l != 0 && m.Labels[l-1] == "6"
 }
 
-func (m *RequestMeta) String() string {
+func (m RequestMeta) String() string {
 	return fmt.Sprintf("%s:%s (%v, %s/%s) %v", m.Scheme, m.CName, m.IP, m.Region, m.ISP, m.Labels)
 }
 
