@@ -40,6 +40,8 @@ In 302-go, users are redirected to a mirror site based on their IP, ISP, geoloca
 The redirector loads static site and endpoint configuration from the directory
 set by `mirrorz-d-directory`. Repository availability, paths, status, and
 freshness are supplied separately by mirrorz-monitor through InfluxDB.
+Each immediate subdirectory represents one site and contains its endpoint
+configuration in `config.json`, for example `sites/ustc/config.json`.
 
 ```json
 {

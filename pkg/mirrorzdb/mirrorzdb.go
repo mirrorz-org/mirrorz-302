@@ -231,34 +231,38 @@ func NewMirrorZDatabase() *MirrorZDatabase {
 }
 
 func (m *MirrorZDatabase) Load(path string) (err error) {
-	files, err := os.ReadDir(path)
+	folders, err := os.ReadDir(path)
 	if err != nil {
 		err = fmt.Errorf("MirrorZDatabase.Load: os.ReadDir: %w", err)
 		logger.Errorf("%v\n", err)
 		return
 	}
 
-	newAbbrs := make([]string, 0, len(files))
+	newAbbrs := make([]string, 0, len(folders))
 	newLabelMap := make(map[string]string)
 	newAbbrMap := make(map[string][]Endpoint)
 
-	for _, file := range files {
-		if !strings.HasSuffix(file.Name(), ".json") {
+	for _, site := range folders {
+		if !site.IsDir() {
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(path, file.Name()))
+		configPath := filepath.Join(path, site.Name(), "config.json")
+		content, err := os.ReadFile(configPath)
 		if err != nil {
-			return fmt.Errorf("MirrorZDatabase.Load: read %s: %w", file.Name(), err)
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("MirrorZDatabase.Load: read %s/config.json: %w", site.Name(), err)
 		}
 		var data SiteFile
 		if err := json.Unmarshal(content, &data); err != nil {
-			return fmt.Errorf("MirrorZDatabase.Load: parse %s: %w", file.Name(), err)
+			return fmt.Errorf("MirrorZDatabase.Load: parse %s/config.json: %w", site.Name(), err)
 		}
 		if len(data.Abbrs) == 0 {
-			return fmt.Errorf("MirrorZDatabase.Load: %s has no abbrs", file.Name())
+			return fmt.Errorf("MirrorZDatabase.Load: %s/config.json has no abbrs", site.Name())
 		}
 		if len(data.Endpoints) == 0 {
-			return fmt.Errorf("MirrorZDatabase.Load: %s has no endpoints", file.Name())
+			return fmt.Errorf("MirrorZDatabase.Load: %s/config.json has no endpoints", site.Name())
 		}
 
 		siteLabel := data.Endpoints[0].Label
@@ -267,7 +271,7 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		}
 		for _, abbr := range data.Abbrs {
 			if abbr == "" {
-				return fmt.Errorf("MirrorZDatabase.Load: %s has an empty abbr", file.Name())
+				return fmt.Errorf("MirrorZDatabase.Load: %s/config.json has an empty abbr", site.Name())
 			}
 			if _, exists := newAbbrMap[abbr]; exists {
 				return fmt.Errorf("MirrorZDatabase.Load: duplicate abbr %q", abbr)
@@ -279,6 +283,9 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		for _, e := range data.Endpoints {
 			newLabelMap[e.Label] = e.Resolve
 		}
+	}
+	if len(newAbbrs) == 0 {
+		return fmt.Errorf("MirrorZDatabase.Load: no site configurations found in %s", path)
 	}
 	for label, resolve := range newLabelMap {
 		logger.Infof("%s -> %s\n", label, resolve)

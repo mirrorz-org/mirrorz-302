@@ -3,8 +3,6 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -32,8 +30,8 @@ func newMirrorlistTestServer(t *testing.T, cacheTime int, influxHandler http.Han
 	ustc := `{"abbrs":["USTC"],"endpoints":[
   {"label":"ustc","resolve":"ustc.example.com","public":true,"filter":["V4","V6","SSL","NOSSL"]}
 ]}`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tuna.json"), []byte(tuna), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ustc.json"), []byte(ustc), 0o600))
+	writeSiteConfig(t, dir, "tuna", tuna)
+	writeSiteConfig(t, dir, "ustc", ustc)
 
 	s := NewServer(Config{
 		InfluxDB:          influxdb.Config{URL: influx.URL, Database: "mirrorz"},

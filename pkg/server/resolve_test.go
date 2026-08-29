@@ -19,6 +19,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func writeSiteConfig(t *testing.T, dir, name, content string) {
+	t.Helper()
+	siteDir := filepath.Join(dir, name)
+	require.NoError(t, os.Mkdir(siteDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(siteDir, "config.json"), []byte(content), 0o600))
+}
+
 func TestExcludeOfflineMirrors(t *testing.T) {
 	newest := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 	res := influxdb.Result{
@@ -95,10 +102,10 @@ func TestDeltaCutoffExcludesMirrorsWithoutMatchingEndpoint(t *testing.T) {
     "range": []
   }]
 }`
-		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
+		writeSiteConfig(t, dir, name, content)
 	}
-	writeMirror("a.json", "A")
-	writeMirror("b.json", "B")
+	writeMirror("a", "A")
+	writeMirror("b", "B")
 
 	db := mirrorzdb.NewMirrorZDatabase()
 	require.NoError(t, db.Load(dir))
@@ -130,7 +137,7 @@ func TestResolveExistRejectsAbsolutelyOutdatedMirror(t *testing.T) {
     "range": []
   }]
 }`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.json"), []byte(content), 0o600))
+	writeSiteConfig(t, dir, "a", content)
 	db := mirrorzdb.NewMirrorZDatabase()
 	require.NoError(t, db.Load(dir))
 	s := &Server{mirrorzd: db, maxRepoStaleness: DefaultMaxRepoStaleness}
@@ -156,10 +163,10 @@ func TestResolveBestUsesUnknownOnlyAsFallback(t *testing.T) {
     "range": []
   }]
 }`
-		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
+		writeSiteConfig(t, dir, name, content)
 	}
-	writeSite("unknown.json", "UNKNOWN")
-	writeSite("normal.json", "NORMAL")
+	writeSite("unknown", "UNKNOWN")
+	writeSite("normal", "NORMAL")
 
 	db := mirrorzdb.NewMirrorZDatabase()
 	require.NoError(t, db.Load(dir))
@@ -194,7 +201,7 @@ func TestResolveExistDoesNotRetainUnknown(t *testing.T) {
     "filter": ["V4", "SSL"], "range": []
   }]
 }`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.json"), []byte(content), 0o600))
+	writeSiteConfig(t, dir, "a", content)
 	db := mirrorzdb.NewMirrorZDatabase()
 	require.NoError(t, db.Load(dir))
 	s := &Server{mirrorzd: db, maxRepoStaleness: DefaultMaxRepoStaleness}
@@ -220,7 +227,7 @@ func TestResolveRepoFromInfluxWithStaticSiteConfig(t *testing.T) {
 
 	dir := t.TempDir()
 	config := `{"abbrs":["TUNA.NANO","TUNA.NEO"],"endpoints":[{"label":"tuna","resolve":"mirrors.tuna.tsinghua.edu.cn","public":true,"filter":["V4","V6","SSL","NOSSL"]}]}`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tuna.json"), []byte(config), 0o600))
+	writeSiteConfig(t, dir, "tuna", config)
 
 	s := NewServer(Config{
 		InfluxDB:          influxdb.Config{URL: influx.URL, Database: "mirrorz"},
@@ -244,7 +251,7 @@ func TestResolveRepoFromInfluxWithStaticSiteConfig(t *testing.T) {
 func TestScoringAPIIncludesEveryConfiguredAbbr(t *testing.T) {
 	dir := t.TempDir()
 	config := `{"abbrs":["TUNA.NANO","TUNA.NEO"],"endpoints":[{"label":"tuna","resolve":"mirrors.tuna.tsinghua.edu.cn","public":true,"filter":["V4","V6","SSL","NOSSL"]}]}`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tuna.json"), []byte(config), 0o600))
+	writeSiteConfig(t, dir, "tuna", config)
 
 	s := NewServer(Config{MirrorZDDirectory: dir, DomainLength: 5})
 	require.NoError(t, s.LoadMirrorZD())
