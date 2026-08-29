@@ -126,6 +126,70 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 	return
 }
 
+func repositoryURL(score scoring.Score, scheme string) string {
+	if strings.HasPrefix(score.Repo, "http://") || strings.HasPrefix(score.Repo, "https://") {
+		return score.Repo
+	}
+	return fmt.Sprintf("%s://%s%s", scheme, score.Resolve, score.Repo)
+}
+
+func candidateURL(score scoring.Score, scheme string) string {
+	url := repositoryURL(score, scheme)
+	if !strings.HasSuffix(url, "/") {
+		url += "/"
+	}
+	return url
+}
+
+func candidateURLs(scores scoring.Scores, scheme string) []string {
+	if len(scores) == 0 {
+		return []string{}
+	}
+
+	urls := make([]string, 0, len(scores))
+	seen := make(map[string]struct{}, len(scores))
+	for _, score := range scores {
+		url := candidateURL(score, scheme)
+		if _, ok := seen[url]; ok {
+			continue
+		}
+		seen[url] = struct{}{}
+		urls = append(urls, url)
+	}
+	return urls
+}
+
+// resolveCandidates returns all eligible repository roots in scoring order.
+// A cached stale list is retained as a fallback if the monitor database is
+// temporarily unavailable.
+func (s *Server) resolveCandidates(ctx context.Context, meta requestmeta.RequestMeta) ([]string, error) {
+	key := requestmeta.CacheKey(meta)
+	cached, cacheStatus := s.resolved.Load(key)
+	if cacheStatus == caching.StatusFresh && cached.Candidates != nil {
+		s.resolved.Touch(key)
+		return cached.Candidates, nil
+	}
+
+	res, ok := s.queryInflux(ctx, meta.CName)
+	if !ok {
+		if len(cached.Candidates) > 0 {
+			s.resolved.Touch(key)
+			return cached.Candidates, nil
+		}
+		return nil, fmt.Errorf("queryInflux failed")
+	}
+
+	scores := s.resolveBest(ctx, res, meta, 0)
+	urls := candidateURLs(scores, meta.Scheme)
+	resolved := caching.Resolved{Candidates: urls}
+	if len(scores) > 0 {
+		resolved.Url = repositoryURL(scores[0], meta.Scheme)
+		resolved.Resolve = scores[0].Resolve
+	}
+	s.resolved.Store(key, resolved)
+	return urls, nil
+}
+
 func calcDeltaCutoff(res influxdb.Result) int {
 	var sum, squareSum, n int
 	for _, item := range res {

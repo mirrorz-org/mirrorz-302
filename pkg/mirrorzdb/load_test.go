@@ -22,12 +22,14 @@ const tunaSite = `{
 
 func writeConfig(t *testing.T, dir, name, content string) {
 	t.Helper()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
+	siteDir := filepath.Join(dir, name)
+	require.NoError(t, os.Mkdir(siteDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(siteDir, "config.json"), []byte(content), 0o600))
 }
 
 func TestLoadSharedEndpoints(t *testing.T) {
 	dir := t.TempDir()
-	writeConfig(t, dir, "tuna.json", tunaSite)
+	writeConfig(t, dir, "tuna", tunaSite)
 
 	db := NewMirrorZDatabase()
 	require.NoError(t, db.Load(dir))
@@ -60,7 +62,7 @@ func TestLoadRejectsInvalidSiteFiles(t *testing.T) {
 	for name, content := range tests {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeConfig(t, dir, "site.json", content)
+			writeConfig(t, dir, "site", content)
 			assert.Error(t, NewMirrorZDatabase().Load(dir))
 		})
 	}
@@ -68,21 +70,29 @@ func TestLoadRejectsInvalidSiteFiles(t *testing.T) {
 
 func TestLoadRejectsDuplicateAbbr(t *testing.T) {
 	dir := t.TempDir()
-	writeConfig(t, dir, "one.json", `{"abbrs":["TUNA"],"endpoints":[{}]}`)
-	writeConfig(t, dir, "two.json", `{"abbrs":["TUNA"],"endpoints":[{}]}`)
+	writeConfig(t, dir, "one", `{"abbrs":["TUNA"],"endpoints":[{}]}`)
+	writeConfig(t, dir, "two", `{"abbrs":["TUNA"],"endpoints":[{}]}`)
 	assert.ErrorContains(t, NewMirrorZDatabase().Load(dir), "duplicate abbr")
 }
 
 func TestFailedReloadKeepsPreviousDatabase(t *testing.T) {
 	dir := t.TempDir()
-	writeConfig(t, dir, "tuna.json", tunaSite)
+	writeConfig(t, dir, "tuna", tunaSite)
 
 	db := NewMirrorZDatabase()
 	require.NoError(t, db.Load(dir))
-	writeConfig(t, dir, "broken.json", `{`)
+	writeConfig(t, dir, "broken", `{`)
 	require.Error(t, db.Load(dir))
 
 	endpoints, ok := db.Lookup("TUNA.NANO")
 	assert.True(t, ok)
 	assert.Len(t, endpoints, 1)
+}
+
+func TestLoadRejectsDirectoryWithoutSiteConfigs(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "legacy.json"), []byte(tunaSite), 0o600))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "missing-config"), 0o700))
+
+	assert.ErrorContains(t, NewMirrorZDatabase().Load(dir), "no site configurations found")
 }

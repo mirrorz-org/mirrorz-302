@@ -23,8 +23,9 @@ type Resolved struct {
 	start time.Time // time of last write
 	last  time.Time // time of last read
 
-	Url     string
-	Resolve string // only used in resolveExist
+	Url        string
+	Resolve    string // only used in resolveExist
+	Candidates []string
 }
 
 type ResolveCache struct {

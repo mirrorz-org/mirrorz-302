@@ -58,7 +58,10 @@ func main() {
 	}
 
 	if config.IPDBFile != "" {
-		geo.LoadIPDB(config.IPDBFile)
+		if err := geo.LoadIPDB(config.IPDBFile); err != nil {
+			logger.Errorf("Cannot load IPDB file: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	s := server.NewServer(config)

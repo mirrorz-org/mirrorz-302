@@ -15,6 +15,11 @@ import (
 
 var logger = logging.GetLogger("mirrorzdb")
 
+type PrivateRange struct {
+	Region string
+	ISP    string
+}
+
 type Endpoint struct {
 	Label   string
 	Resolve string
@@ -28,9 +33,10 @@ type Endpoint struct {
 		NOSSL   bool
 		Special []string
 	}
-	RangeRegion []string
-	RangeISP    []string
-	RangeCIDR   []*net.IPNet
+	PrivateRanges []PrivateRange
+	RangeRegion   []string
+	RangeISP      []string
+	RangeCIDR     []*net.IPNet
 	// SiteLabel is the representative label of the site this endpoint
 	// belongs to (the first endpoint's label), set during Load. It is
 	// used so that `avoid<SiteLabel>` excludes the whole site.
@@ -39,11 +45,12 @@ type Endpoint struct {
 
 // endpointJSON is used to parse Endpoint from JSON.
 type endpointJSON struct {
-	Label   string   `json:"label"`
-	Resolve string   `json:"resolve"`
-	Public  bool     `json:"public"`
-	Filter  []string `json:"filter"`
-	Range   []string `json:"range"`
+	Label        string     `json:"label"`
+	Resolve      string     `json:"resolve"`
+	Public       bool       `json:"public"`
+	PrivateRange [][]string `json:"private_range"`
+	Filter       []string   `json:"filter"`
+	Range        []string   `json:"range"`
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
@@ -79,6 +86,38 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 	if !e.Filter.V4 && e.Filter.V6 {
 		e.Filter.V6Only = true
 	}
+	// private_range
+	for groupIndex, ds := range j.PrivateRange {
+		if len(ds) == 0 {
+			return fmt.Errorf("private_range group %d is empty", groupIndex)
+		}
+		pr := PrivateRange{}
+		seenRegion, seenISP := false, false
+		for _, d := range ds {
+			if region, ok := strings.CutPrefix(d, "REGION:"); ok {
+				if region == "" {
+					return fmt.Errorf("private_range group %d has an empty REGION", groupIndex)
+				}
+				if seenRegion {
+					return fmt.Errorf("private_range group %d has duplicate REGION conditions", groupIndex)
+				}
+				seenRegion = true
+				pr.Region = region
+			} else if isp, ok := strings.CutPrefix(d, "ISP:"); ok {
+				if isp == "" {
+					return fmt.Errorf("private_range group %d has an empty ISP", groupIndex)
+				}
+				if seenISP {
+					return fmt.Errorf("private_range group %d has duplicate ISP conditions", groupIndex)
+				}
+				seenISP = true
+				pr.ISP = isp
+			} else {
+				return fmt.Errorf("private_range group %d has unknown condition %q", groupIndex, d)
+			}
+		}
+		e.PrivateRanges = append(e.PrivateRanges, pr)
+	}
 	// Range
 	for _, d := range j.Range {
 		if region, ok := strings.CutPrefix(d, "REGION:"); ok {
@@ -108,6 +147,30 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 
 	remoteIPv4 := m.IP.To4() != nil
 
+	// Special filters for private range
+	if !e.Public && e.MatchIPMask(m.IP) == 0 {
+		if len(e.PrivateRanges) == 0 {
+			if len(e.RangeCIDR) == 0 {
+				return "private endpoint without access range (disabled)", false
+			}
+			return "ip not in private cidr range", false
+		}
+		if !m.GeoKnown {
+			return "geolocation unavailable for private range", false
+		}
+		status := false
+		for _, pr := range e.PrivateRanges {
+			if (pr.Region == "" || pr.Region == m.Region) &&
+				(pr.ISP == "" || MatchISP(pr.ISP, m.ISP)) {
+				status = true
+				break
+			}
+		}
+		if !status {
+			return "ip not in private range", false
+		}
+	}
+
 	switch {
 	case remoteIPv4 && !e.Filter.V4:
 		return "not v4 endpoint", false
@@ -121,29 +184,15 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 		return "label v4only but endpoint not v4only", false
 	case m.V6Only() && !e.Filter.V6Only:
 		return "label v6only but endpoint not v6only", false
-	case !e.Public && len(e.RangeCIDR) == 0:
-		return "private endpoint without cidr range (disabled)", false
-	case !e.Public && e.MatchIPMask(m.IP) == 0:
-		return "ip not in private cidr range", false
 	default:
 		return "OK", true
 	}
 }
 
-// MatchISP reports if the given ISP is preferred by the endpoint.
-func (e *Endpoint) MatchISP(isp string) bool {
-	for _, r := range e.RangeISP {
+// MatchISP reports if the given ISP is in the config of the endpoint.
+func MatchISP(isp string, isps []string) bool {
+	for _, r := range isps {
 		if r == isp {
-			return true
-		}
-	}
-	return false
-}
-
-// MatchISPs reports if the given ISP set intersects with the endpoint's preference.
-func (e *Endpoint) MatchISPs(isps []string) bool {
-	for _, isp := range isps {
-		if e.MatchISP(isp) {
 			return true
 		}
 	}
@@ -234,6 +283,9 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		for _, e := range data.Endpoints {
 			newLabelMap[e.Label] = e.Resolve
 		}
+	}
+	if len(newAbbrs) == 0 {
+		return fmt.Errorf("MirrorZDatabase.Load: no site configurations found in %s", path)
 	}
 	for label, resolve := range newLabelMap {
 		logger.Infof("%s -> %s\n", label, resolve)

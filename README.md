@@ -40,6 +40,8 @@ In 302-go, users are redirected to a mirror site based on their IP, ISP, geoloca
 The redirector loads static site and endpoint configuration from the directory
 set by `mirrorz-d-directory`. Repository availability, paths, status, and
 freshness are supplied separately by mirrorz-monitor through InfluxDB.
+Each immediate subdirectory represents one site and contains its endpoint
+configuration in `config.json`, for example `sites/ustc/config.json`.
 
 ```json
 {
@@ -65,8 +67,6 @@ freshness are supplied separately by mirrorz-monitor through InfluxDB.
       "resolve": "chinanet.mirrors.ustc.edu.cn",
       "filter": [ "V4", "SSL", "NOSSL" ],
       "range": [
-        "AS4134",
-        "AS4809",
         "REGION:AH",
         "ISP:CHINANET"
       ]
@@ -91,17 +91,21 @@ freshness are supplied separately by mirrorz-monitor through InfluxDB.
   - `label`: a unique identifier for this endpoint
   - `resolve`: a domain name or IP address. This is directly concatenated in the final URL so a subpath may also be provided (e.g. `linux.xidian.edu.cn/mirrors` and `10.0.0.1:8080/proxy`).
     + It should not end with slash `/` as the request path `/archlinux/iso` will be directly concatenated to it.
-  - `public`: the endpoint can be reached outside of its range. Usually `false` for campus-only mirrors. When `public: false` and `range` declares no CIDR, the endpoint is treated as disabled and never serves any request.
+  - `public`: when `true`, `range` only affects preference scoring. When `false`, matching CIDR entries in `range` can access it, and users outside those CIDRs may still be allowed by `private_range`. If `range` has no CIDR, access is determined by `private_range`.
+  - `private_range`: used **only when `public` is `false`**. It controls access for clients whose IP does **not** match any CIDR in `range`, and can also be the only access rule when `range` has no CIDR.
+    - **Format**: `[["REGION:...", "ISP:..."], ...]` (a 2D string array).
+    - Each inner array is a **group**; all specified conditions inside must match (logical **AND**).
+    - The request is allowed if **any** group matches (logical **OR**); otherwise denied.
+    - Each group may contain at most one `REGION` and one `ISP`. Empty groups, empty values, duplicate conditions, and unknown condition types make the site configuration invalid.
+    - REGION/ISP access requires a successful lookup from a loaded IPDB. If geolocation is unavailable, `private_range` does not grant access.
   - `filter`: Each endpoint has many capabilities
     + `SSL`: HTTPS available
     + `NOSSL`: HTTP available, and does not redirect to HTTPS when accessing repos
     + `V4`: IPv4 available (A record)
     + `V6`: IPv6 available (AAAA record)
-  - `range`: when `public`, the endpoint **prefers** these ranges, other user may still use this endpoint; otherwise it **only serves** clients whose IP falls in one of the declared CIDRs. ISP and REGION do not grant access for private endpoints (they are only used for preference scoring when `public`). If no CIDR is declared, the endpoint is disabled.
-    + COUNTRY: Must start with `COUNTRY`, then a colon, then [ISO country code](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2). Example: `COUNTRY:CN` or `COUNTRY:US`. Defaults to `CN`.
-    + REGION: Must start with `REGION`, then a colon, then province name (GB/T 2260-2007). Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai). Defaults to `BJ`.
-    + ISP: Must start with `ISP`, then a colon, then ISP name. Example: `ISP:CERNET` or `ISP:CHINANET`. Defaults to `CERNET`. All currently supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
-    + ASN (deprecated): Must start with `AS`. Example: `AS4538` and `AS13335`
+  - `range`: describes endpoint preferences and CIDR access rules. For a public endpoint, matching REGION, ISP, or CIDR entries improve its score, but non-matching clients may still use it. For a private endpoint, a matching CIDR grants access directly; REGION and ISP entries may affect scoring after the endpoint is eligible, but do not grant access. If no CIDR matches, `private_range` may still grant access.
+    + REGION: Must start with `REGION`, then a colon, then a province code (GB/T 2260-2007). Example: `REGION:BJ` (Beijing) or `REGION:SH` (Shanghai).
+    + ISP: Must start with `ISP`, then a colon, then an ISP name. Example: `ISP:CERNET` or `ISP:CHINANET`. Supported values are `CERNET`, `CSTNET`, `CHINANET`, `UNICOM` and `CMCC`.
     + CIDR: Example: `202.0.0.0/24` or `2001:da8::/32`
 * `abbrs`
   - Each value must exactly match the `mirror` tag written by mirrorz-monitor. Multiple monitor abbreviations may share the same endpoint configuration.
@@ -122,6 +126,53 @@ freshness are supplied separately by mirrorz-monitor through InfluxDB.
    ```shell
    curl https://mirrors.cernet.edu.cn/api/scoring | jq .
    ```
+
+#### Package-manager mirror lists
+
+The Go backend exposes separate mirror-list formats for APT and RPM clients.
+Both lists contain every eligible endpoint in scoring order and omit duplicate
+repository URLs.
+
+APT 1.6 or newer can use the APT-specific list through the `mirror+https`
+transport. For example, replace `debian` with the repository cname where
+necessary:
+
+```text
+deb mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/debian bookworm main
+```
+
+The equivalent deb822 source is:
+
+```text
+Types: deb
+URIs: mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/debian
+Suites: bookworm
+Components: main
+```
+
+The APT response assigns `priority:1` to the highest-scoring URL and increasing
+priority numbers to the remaining fallback URLs.
+
+DNF and DNF5 can use the RPM-specific endpoint as a regular `mirrorlist`.
+RPM repository variables are expanded by DNF before it requests the list, so a
+repository-specific path can follow the cname. For example:
+
+```ini
+[rocky-baseos]
+name=Rocky Linux BaseOS
+mirrorlist=https://mirrors.cernet.edu.cn/api/rpm/mirrorlist/rocky/$releasever/BaseOS/$basearch/os
+enabled=1
+gpgcheck=1
+```
+
+The RPM response is a plain URL-per-line list in scoring order. DNF normally
+uses this as its initial order, but `fastestmirror=True` deliberately overrides
+the server-provided order. The server uses only the cname (`rocky` above) to
+select and cache mirrors, then safely appends the expanded repository path to
+each URL. RPM metalink output is not currently provided.
+
+Both endpoints accept `GET` and `HEAD`. Query parameters such as DNF's
+`countme` are accepted but are not copied into the returned repository URLs.
 
 Repository mirrors whose monitor delta is more negative than either the dynamic
 outlier cutoff or `max-repo-staleness` are excluded from scoring. The latter is
@@ -164,16 +215,21 @@ If a user does not match any range or match exactly the same in `mirrors` and `m
 #### On range when private endpoint
 
 ```json
-    {
-      "label": "ustccampus",
-      "public": false,
-      "resolve": "10.0.0.1:8080",
-      "filter": [ "V4", "NOSSL" ],
-      "range": [ "202.0.0.0/24" ]
-    },
+{
+  "label": "zju",
+  "public": false,
+  "resolve": "mirrors.zju.edu.cn",
+  "filter": ["V4", "V6", "SSL", "NOSSL"],
+  "private_range": [
+    ["REGION:ZJ"]
+  ],
+  "range": [
+    "210.32.0.0/20"
+  ]
+}
 ```
 
-Campus-only mirror site may use a private IP but declare a public range. For example, suppose USTC has a private IP range of 10.0.0.0/8, USTC mirror is located at 10.0.0.1:8080, and when one user inside USTC accesses `mirrors.edu.cn`, its IP is NATed into 202.0.0.0/24, then `mirrors.edu.cn` can resolve the request into `ustccampus` endpoint.
+The site may use `private_range` to control access for users outside of its CIDR `range`. When `public` is `false`, CIDR matches are allowed directly. For users outside those CIDRs, each `private_range` group is checked. In this example, clients in `210.32.0.0/20` are allowed directly, and other clients are allowed only when the IPDB identifies them as being in Zhejiang.
 
 #### TODO
 
