@@ -20,6 +20,7 @@ type Tracer interface {
 	io.WriterTo
 	fmt.Stringer
 	Printf(format string, args ...any)
+	Enabled() bool
 }
 
 // NewTracer returns a new Tracer.
@@ -53,6 +54,11 @@ func (t *bufTracer) String() string {
 	return t.b.String()
 }
 
+// Enabled implements the Tracer interface.
+func (t *bufTracer) Enabled() bool {
+	return true
+}
+
 // WriteTo implements the io.WriterTo interface.
 func (t *bufTracer) WriteTo(w io.Writer) (n int64, err error) {
 	N, err := io.WriteString(w, t.b.String())
@@ -68,6 +74,11 @@ func (t *nopTracer) Printf(format string, args ...any) {}
 // String implements the fmt.Stringer interface.
 func (t *nopTracer) String() string {
 	return ""
+}
+
+// Enabled implements the Tracer interface.
+func (t *nopTracer) Enabled() bool {
+	return false
 }
 
 // WriteTo implements the io.WriterTo interface.

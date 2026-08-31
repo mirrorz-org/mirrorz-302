@@ -268,3 +268,48 @@ func TestScoringAPIIncludesEveryConfiguredAbbr(t *testing.T) {
 	require.Len(t, response.Scores, 2)
 	assert.ElementsMatch(t, []string{"TUNA.NANO", "TUNA.NEO"}, []string{response.Scores[0].Abbr, response.Scores[1].Abbr})
 }
+
+func TestTraceBypassesFreshCache(t *testing.T) {
+	influx := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/query", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"series":[{"name":"repo","tags":{"mirror":"TUNA.NANO","url":"/archlinux"},"columns":["time","value","disable"],"values":[["2026-08-25T00:00:00Z",-1,false]]}]}]}`))
+	}))
+	defer influx.Close()
+
+	dir := t.TempDir()
+	config := `{"abbrs":["TUNA.NANO","TUNA.NEO"],"endpoints":[{"label":"tuna","resolve":"mirrors.tuna.tsinghua.edu.cn","public":true,"filter":["V4","V6","SSL","NOSSL"]}]}`
+	writeSiteConfig(t, dir, "tuna", config)
+
+	s := NewServer(Config{
+		InfluxDB:          influxdb.Config{URL: influx.URL, Database: "mirrorz"},
+		MirrorZDDirectory: dir,
+		DomainLength:      5,
+		CacheTime:         300,
+	})
+	require.NoError(t, s.LoadMirrorZD())
+
+	get := func(target string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, target, nil)
+		r.Header.Set("X-Forwarded-Proto", "https")
+		r.Header.Set("X-Forwarded-Host", "mirrors.cernet.edu.cn")
+		r.Header.Set("X-Real-IP", "192.0.2.1")
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		return w
+	}
+
+	// populate the cache
+	first := get("https://mirrors.cernet.edu.cn/archlinux/")
+	require.Equal(t, http.StatusFound, first.Code)
+
+	// a trace request on a fresh cache entry must still show the scoring detail
+	traced := get("https://mirrors.cernet.edu.cn/archlinux/?trace=1")
+	require.Equal(t, http.StatusOK, traced.Code)
+	assert.Contains(t, traced.Body.String(), "score 0:")
+
+	// regular requests keep being served from the cache
+	second := get("https://mirrors.cernet.edu.cn/archlinux/")
+	assert.Equal(t, http.StatusFound, second.Code)
+	assert.Equal(t, "https://mirrors.tuna.tsinghua.edu.cn/archlinux/", second.Header().Get("Location"))
+}
