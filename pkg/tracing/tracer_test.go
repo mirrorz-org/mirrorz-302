@@ -10,6 +10,7 @@ import (
 func TestTracer(t *testing.T) {
 	as := assert.New(t)
 	tr := NewTracer(true)
+	as.True(tr.Enabled())
 
 	tr.Printf("ta%sky", "o")
 	as.Equal(tr.String(), "taoky")
@@ -28,6 +29,7 @@ func TestTracer(t *testing.T) {
 func TestNopTracer(t *testing.T) {
 	as := assert.New(t)
 	tr := NewTracer(false)
+	as.False(tr.Enabled())
 
 	tr.Printf("ta%sky", "o")
 	as.Equal(tr.String(), "")

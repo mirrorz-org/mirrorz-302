@@ -81,7 +81,7 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url
 	keyResolved, cacheStatus := s.resolved.Load(key)
 
 	// all valid, use cached result
-	if cacheStatus == caching.StatusFresh {
+	if cacheStatus == caching.StatusFresh && !tracer.Enabled() {
 		// update timestamp
 		s.resolved.Store(key, keyResolved)
 		url = keyResolved.Url
