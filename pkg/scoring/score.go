@@ -66,9 +66,9 @@ func (l Score) Less(r Score) bool {
 	} else if r.Delta < 0 && l.Delta > 0 {
 		return false
 	} else if r.Delta > 0 && l.Delta > 0 {
-		return l.Delta <= r.Delta
+		return l.Delta < r.Delta
 	} else {
-		return r.Delta <= l.Delta
+		return r.Delta < l.Delta
 	}
 }
 
@@ -126,7 +126,7 @@ func (s Scores) Swap(l, r int) { s[l], s[r] = s[r], s[l] }
 
 // Sort sorts the scores in place.
 func (s Scores) Sort() {
-	sort.Sort(s)
+	sort.Stable(s)
 }
 
 func (scores Scores) RandomRange(r int) Score {

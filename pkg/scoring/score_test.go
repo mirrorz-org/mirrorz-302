@@ -3,6 +3,7 @@ package scoring
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"testing"
 
@@ -63,4 +64,26 @@ func TestUnknownScoreIsFallback(t *testing.T) {
 
 	assert.True(t, normal.Less(preferredByLocation))
 	assert.False(t, preferredByLocation.Less(normal))
+}
+
+func TestLessEqualScores(t *testing.T) {
+	as := assert.New(t)
+	synced := Score{Geo: 900, Delta: -70000}
+	as.False(synced.Less(synced))
+	proxy := Score{Geo: 900, Delta: 1000}
+	as.False(proxy.Less(proxy))
+}
+
+func TestSortKeepsEqualScoreOrder(t *testing.T) {
+	as := assert.New(t)
+	for _, n := range []int{6, 20} {
+		scores := make(Scores, 0, n)
+		for i := 0; i < n; i++ {
+			scores = append(scores, Score{Geo: 900, Delta: -70000, Label: fmt.Sprintf("e%02d", i)})
+		}
+		scores.Sort()
+		for i, score := range scores {
+			as.Equal(fmt.Sprintf("e%02d", i), score.Label)
+		}
+	}
 }
