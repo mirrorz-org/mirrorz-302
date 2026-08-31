@@ -102,7 +102,7 @@ func (c *ResolveCache) StartGCTicker() {
 	if c.ticker != nil {
 		return
 	}
-	c.ticker = time.NewTicker(time.Second * time.Duration(c.ttl))
+	c.ticker = time.NewTicker(c.ttl)
 	go c.gcTicker(c.ticker.C)
 }
 
