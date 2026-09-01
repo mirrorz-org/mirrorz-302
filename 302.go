@@ -107,4 +107,5 @@ func main() {
 
 	logger.Infof("Starting HTTP server on %s\n", config.HTTPBindAddress)
 	logger.Errorf("HTTP Server error: %v\n", http.ListenAndServe(config.HTTPBindAddress, s))
+	os.Exit(1)
 }

@@ -1,9 +1,11 @@
 [Unit]
 Description=mirrorz-302 server
+Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=exec
+Restart=on-failure
 User=mirrorz
 ExecStart=/usr/local/sbin/mirrorzd -config /etc/mirrorzd/config.yml
 ExecReload=/bin/kill -HUP $MAINPID
