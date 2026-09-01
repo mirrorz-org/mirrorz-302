@@ -6,6 +6,7 @@ After=network-online.target
 [Service]
 Type=exec
 Restart=on-failure
+RestartSec=2
 User=mirrorz
 ExecStart=/usr/local/sbin/mirrorzd -config /etc/mirrorzd/config.yml
 ExecReload=/bin/kill -HUP $MAINPID
