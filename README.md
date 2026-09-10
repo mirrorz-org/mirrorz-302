@@ -71,6 +71,8 @@ configuration in `config.json`, for example `sites/ustc/config.json`.
 ```json
 {
   "abbrs": ["USTC"],
+  "blacklist": [],
+  "whitelist": [],
   "endpoints": [
     {
       "label": "ustc",
@@ -134,6 +136,19 @@ configuration in `config.json`, for example `sites/ustc/config.json`.
     + CIDR: Example: `202.0.0.0/24` or `2001:da8::/32`
 * `abbrs`
   - Each value must exactly match the `mirror` tag written by mirrorz-monitor. Multiple monitor abbreviations may share the same endpoint configuration.
+* `blacklist` / `whitelist`
+  - Optional arrays of repository cnames, applied to every endpoint and abbreviation
+    of this site. Matching is exact and case-sensitive, using the cname (e.g.
+    `"debian"`), not the mirror's repository path or a glob pattern.
+  - `blacklist` excludes listed repositories. A non-empty `whitelist` allows only
+    listed repositories. Omitted, `null`, or empty lists impose no restriction.
+    If a repository appears in both lists, the blacklist wins.
+  - For example, `"blacklist": ["ubuntu"]` blocks Ubuntu, while
+    `"whitelist": ["debian", "debian-cd"]` allows only those two repositories.
+    These rules apply to redirects and APT/RPM mirror lists, including explicit
+    endpoint preferences. `/api/scoring` without a cname still lists the site.
+  - Reload the site configuration with `SIGHUP` to apply changes and clear cached
+    redirect results.
 
 ### Note
 

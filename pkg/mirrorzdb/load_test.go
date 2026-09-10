@@ -96,3 +96,44 @@ func TestLoadRejectsDirectoryWithoutSiteConfigs(t *testing.T) {
 
 	assert.ErrorContains(t, NewMirrorZDatabase().Load(dir), "no site configurations found")
 }
+
+func TestSiteRepositoryRestrictions(t *testing.T) {
+	for _, test := range []struct {
+		name, policy, cname, reason string
+	}{
+		{"omitted", ``, "debian", "OK"},
+		{"empty", `"blacklist":[],"whitelist":[],`, "debian", "OK"},
+		{"null", `"blacklist":null,"whitelist":null,`, "debian", "OK"},
+		{"blacklisted", `"blacklist":["debian"],`, "debian", "repository in site blacklist"},
+		{"not blacklisted", `"blacklist":["ubuntu"],`, "debian", "OK"},
+		{"whitelisted", `"whitelist":["debian"],`, "debian", "OK"},
+		{"not whitelisted", `"whitelist":["ubuntu"],`, "debian", "repository not in site whitelist"},
+		{"blacklist wins", `"blacklist":["debian"],"whitelist":["debian"],`, "debian", "repository in site blacklist"},
+		{"exact match", `"blacklist":["debian"],`, "debian-cd", "OK"},
+		{"case sensitive", `"whitelist":["Debian"],`, "debian", "repository not in site whitelist"},
+		{"no glob", `"blacklist":["debian*"],`, "debian", "OK"},
+		{"site scoring", `"whitelist":["debian"],`, "", "OK"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeConfig(t, dir, "site", `{`+test.policy+`"abbrs":["A","B"],"endpoints":[
+				{"label":"one","public":true,"filter":["V4","SSL"]},
+				{"label":"two","public":true,"filter":["V4","SSL"]}
+			]}`)
+			db := NewMirrorZDatabase()
+			require.NoError(t, db.Load(dir))
+			meta := baseMeta([]string{"one", "two"})
+			meta.CName = test.cname
+			for _, abbr := range []string{"A", "B"} {
+				endpoints, ok := db.Lookup(abbr)
+				require.True(t, ok)
+				require.Len(t, endpoints, 2)
+				for _, endpoint := range endpoints {
+					reason, ok := endpoint.Match(meta)
+					assert.Equal(t, test.reason, reason)
+					assert.Equal(t, test.reason == "OK", ok)
+				}
+			}
+		})
+	}
+}

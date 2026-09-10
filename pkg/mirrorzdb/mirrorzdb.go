@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -41,6 +42,9 @@ type Endpoint struct {
 	// belongs to (the first endpoint's label), set during Load. It is
 	// used so that `avoid<SiteLabel>` excludes the whole site.
 	SiteLabel string
+	// Repository restrictions inherited from the site configuration during Load.
+	Blacklist []string
+	Whitelist []string
 }
 
 // endpointJSON is used to parse Endpoint from JSON.
@@ -136,6 +140,16 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 
 // Match checks if the endpoint can serve the request.
 func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
+	// Requests without a repository list sites for the scoring API.
+	if m.CName != "" {
+		if slices.Contains(e.Blacklist, m.CName) {
+			return "repository in site blacklist", false
+		}
+		if len(e.Whitelist) > 0 && !slices.Contains(e.Whitelist, m.CName) {
+			return "repository not in site whitelist", false
+		}
+	}
+
 	for _, l := range m.Labels {
 		if e.SiteLabel != "" && l == "avoid"+e.SiteLabel {
 			return "avoid site", false
@@ -216,6 +230,8 @@ func (e *Endpoint) MatchIPMask(ip net.IP) (longest int) {
 
 type SiteFile struct {
 	Abbrs     []string   `json:"abbrs"`
+	Blacklist []string   `json:"blacklist"`
+	Whitelist []string   `json:"whitelist"`
 	Endpoints []Endpoint `json:"endpoints"`
 }
 
@@ -268,6 +284,8 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		siteLabel := data.Endpoints[0].Label
 		for i := range data.Endpoints {
 			data.Endpoints[i].SiteLabel = siteLabel
+			data.Endpoints[i].Blacklist = data.Blacklist
+			data.Endpoints[i].Whitelist = data.Whitelist
 		}
 		for _, abbr := range data.Abbrs {
 			if abbr == "" {

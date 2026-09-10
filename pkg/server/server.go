@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -38,6 +39,8 @@ type Config struct {
 const DefaultMaxRepoStaleness = 48 * 60 * 60
 
 type Server struct {
+	// Keep configuration reloads and cache invalidation atomic with resolution.
+	configMu sync.RWMutex
 	// feature providers
 	resolved *caching.ResolveCache
 	mirrorzd *mirrorzdb.MirrorZDatabase
@@ -101,7 +104,13 @@ func (s *Server) InitLoggers() error {
 }
 
 func (s *Server) LoadMirrorZD() error {
-	return s.mirrorzd.Load(s.mirrorzdDir)
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	if err := s.mirrorzd.Load(s.mirrorzdDir); err != nil {
+		return err
+	}
+	s.CachePurge()
+	return nil
 }
 
 func (s *Server) buildHandlers() {

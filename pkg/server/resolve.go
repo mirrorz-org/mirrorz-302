@@ -51,6 +51,8 @@ func (s *Server) queryInflux(ctx context.Context, cname string) (res influxdb.Re
 }
 
 func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url string, err error) {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 
 	cname := meta.CName
@@ -163,6 +165,8 @@ func candidateURLs(scores scoring.Scores, scheme string) []string {
 // A cached stale list is retained as a fallback if the monitor database is
 // temporarily unavailable.
 func (s *Server) resolveCandidates(ctx context.Context, meta requestmeta.RequestMeta) ([]string, error) {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
 	key := requestmeta.CacheKey(meta)
 	cached, cacheStatus := s.resolved.Load(key)
 	if cacheStatus == caching.StatusFresh && cached.Candidates != nil {
@@ -237,6 +241,8 @@ func (s *Server) outdatedReason(delta, dynamicCutoff int) string {
 
 // ResolveBest tries to find the best mirror for the given request
 func (s *Server) ResolveBest(ctx context.Context, meta requestmeta.RequestMeta) (scores scoring.Scores) {
+	s.configMu.RLock()
+	defer s.configMu.RUnlock()
 	if meta.CName == "" {
 		return s.resolveBestAll(ctx, meta)
 	}

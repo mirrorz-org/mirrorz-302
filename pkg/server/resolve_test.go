@@ -313,3 +313,80 @@ func TestTraceBypassesFreshCache(t *testing.T) {
 	assert.Equal(t, http.StatusFound, second.Code)
 	assert.Equal(t, "https://mirrors.tuna.tsinghua.edu.cn/archlinux/", second.Header().Get("Location"))
 }
+
+func TestRepositoryRestrictionsExcludeCandidatesAndStaleResolve(t *testing.T) {
+	dir := t.TempDir()
+	writeSiteConfig(t, dir, "blocked", `{"abbrs":["BLOCKED"],"blacklist":["debian"],"endpoints":[
+		{"label":"blocked","resolve":"blocked.example.com","public":true,"filter":["V4","SSL"]}
+	]}`)
+	writeSiteConfig(t, dir, "allowed", `{"abbrs":["ALLOWED"],"whitelist":["debian"],"endpoints":[
+		{"label":"allowed","resolve":"allowed.example.com","public":true,"filter":["V4","SSL"]}
+	]}`)
+	db := mirrorzdb.NewMirrorZDatabase()
+	require.NoError(t, db.Load(dir))
+	s := &Server{mirrorzd: db, maxRepoStaleness: DefaultMaxRepoStaleness}
+	meta := requestmeta.RequestMeta{CName: "debian", IP: net.ParseIP("192.0.2.1"), Scheme: "https", Labels: []string{"blocked"}}
+	ctx := context.WithValue(context.Background(), tracing.Key, tracing.NewTracer(true))
+	res := influxdb.Result{
+		{Mirror: "BLOCKED", Value: -100000, Path: "/different-path"},
+		{Mirror: "ALLOWED", Value: -1, Path: "/debian"},
+	}
+	eligible := s.eligibleForRequest(res, meta)
+	require.Len(t, eligible, 1)
+	assert.Equal(t, -1, calcDeltaCutoff(eligible))
+	scores := s.resolveBest(ctx, res, meta, 0)
+	require.Len(t, scores, 1)
+	assert.Equal(t, "ALLOWED", scores[0].Abbr)
+	assert.Equal(t, []string{"https://allowed.example.com/debian/"}, candidateURLs(scores, meta.Scheme))
+	// Even an up-to-date mirror cannot retain a now-disallowed cached redirect.
+	res[0].Value = -1
+	resolve, repo := s.ResolveExist(ctx, res, "blocked.example.com", meta)
+	assert.Empty(t, resolve)
+	assert.Empty(t, repo)
+}
+
+func TestRepositoryRestrictionsReloadClearsCachedResults(t *testing.T) {
+	for _, path := range []string{"/repo/", "/api/apt/mirrorlist/repo", "/api/rpm/mirrorlist/repo"} {
+		t.Run(path, func(t *testing.T) {
+			s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(mirrorlistInfluxResponse))
+			}))
+			defer closeServer()
+			request := func() string {
+				w := httptest.NewRecorder()
+				s.ServeHTTP(w, mirrorlistRequest(http.MethodGet, path))
+				if path == "/repo/" {
+					require.Equal(t, http.StatusFound, w.Code)
+					return w.Header().Get("Location")
+				}
+				require.Equal(t, http.StatusOK, w.Code)
+				return w.Body.String()
+			}
+			assert.Contains(t, request(), "near.example.com")
+			configPath := filepath.Join(s.mirrorzdDir, "tuna", "config.json")
+			original, err := os.ReadFile(configPath)
+			require.NoError(t, err)
+			var config map[string]any
+			require.NoError(t, json.Unmarshal(original, &config))
+			config["blacklist"] = []string{"repo"}
+			modified, err := json.Marshal(config)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(configPath, modified, 0o600))
+			require.NoError(t, s.LoadMirrorZD())
+			result := request()
+			assert.NotContains(t, result, "near.example.com")
+			assert.NotContains(t, result, "generic.example.com")
+			assert.Contains(t, result, "ustc.example.com")
+
+			// Invalid policy types leave the active rules and cache intact.
+			require.NoError(t, os.WriteFile(configPath, []byte(`{"abbrs":["TUNA"],"blacklist":"repo","endpoints":[{}]}`), 0o600))
+			require.Error(t, s.LoadMirrorZD())
+			assert.Equal(t, result, request())
+
+			require.NoError(t, os.WriteFile(configPath, original, 0o600))
+			require.NoError(t, s.LoadMirrorZD())
+			assert.Contains(t, request(), "near.example.com")
+		})
+	}
+}
