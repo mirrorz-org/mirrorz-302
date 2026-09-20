@@ -276,6 +276,7 @@ prefer official indexes while downloading packages from scored mirrors:
 ```text
 deb mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/debian-security?official_index=1 bookworm-security main
 deb mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/ubuntu?official_index=1 noble-security main restricted universe multiverse
+deb mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/ubuntu-ports?official_index=1 noble-security main restricted universe multiverse
 ```
 
 The equivalent deb822 entries (use the entry for your distribution) are:
@@ -290,17 +291,24 @@ Types: deb
 URIs: mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/ubuntu?official_index=1
 Suites: noble-security
 Components: main restricted universe multiverse
+
+Types: deb
+URIs: mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/ubuntu-ports?official_index=1
+Suites: noble-security
+Components: main restricted universe multiverse
 ```
 
 Keep Ubuntu security in a separate source entry. Regular, updates, and backports
 suites should continue using the URL without this parameter; the server does not
-inspect the suites configured in APT. This mode supports `debian-security` and
-`ubuntu`, but not `ubuntu-ports` or other repositories. An unsupported repository
+inspect the suites configured in APT. This mode supports `debian-security`,
+`ubuntu`, and `ubuntu-ports`. An unsupported repository
 with `official_index=1` returns HTTP 400. Other parameter values leave the list
 unchanged.
 
-The list starts with `https://security.debian.org/debian-security/` or
-`https://security.ubuntu.com/ubuntu/` tagged `priority:0 type:index`, followed by
+The list starts with the corresponding official URL:
+`https://security.debian.org/debian-security/`,
+`https://security.ubuntu.com/ubuntu/`, or `https://ports.ubuntu.com/ubuntu-ports/`,
+tagged `priority:0 type:index`, followed by
 the eligible mirrors with priorities starting at 1. The official URL appears
 again after all mirrors as the final fallback without a type restriction.
 Packages therefore prefer mirrors and fall back to the official server if, for

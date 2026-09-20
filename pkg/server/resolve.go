@@ -56,7 +56,7 @@ func (s *Server) queryInflux(ctx context.Context, cname string) (res influxdb.Re
 // ErrInvalidPath identifies malformed requests or invalid global rewrite output.
 var ErrInvalidPath = errors.New("invalid repository path")
 var errMirrorlistNotFound = errors.New("invalid mirrorlist repository")
-var errOfficialIndexUnsupported = errors.New("official_index is only supported for debian-security and ubuntu")
+var errOfficialIndexUnsupported = errors.New("official_index is only supported for debian-security, ubuntu and ubuntu-ports")
 
 // normalizeMeta must run under configMu, together with site rule evaluation.
 func (s *Server) normalizeMeta(ctx context.Context, meta requestmeta.RequestMeta) (requestmeta.RequestMeta, error) {
@@ -212,6 +212,8 @@ func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.Request
 			list.OfficialURL = "https://security.debian.org/debian-security/"
 		case "ubuntu":
 			list.OfficialURL = "https://security.ubuntu.com/ubuntu/"
+		case "ubuntu-ports":
+			list.OfficialURL = "https://ports.ubuntu.com/ubuntu-ports/"
 		default:
 			return list, errOfficialIndexUnsupported
 		}

@@ -236,6 +236,7 @@ func TestAPTMirrorlistOfficialIndex(t *testing.T) {
 	for _, repo := range []struct{ cname, official string }{
 		{"debian-security", "https://security.debian.org/debian-security/"},
 		{"ubuntu", "https://security.ubuntu.com/ubuntu/"},
+		{"ubuntu-ports", "https://ports.ubuntu.com/ubuntu-ports/"},
 	} {
 		t.Run(repo.cname, func(t *testing.T) {
 			var queries atomic.Int32
@@ -354,7 +355,7 @@ func TestOfficialIndexValidation(t *testing.T) {
 		code int
 	}{
 		{"debian", 400},
-		{"ubuntu-ports", 400},
+		{"ubuntu-old-releases", 400},
 		{"missing", 400},
 		{"", 404},
 		{"ubuntu/extra", 404},
