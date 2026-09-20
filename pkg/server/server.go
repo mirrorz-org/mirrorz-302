@@ -150,9 +150,12 @@ func (s *Server) handleMirrorlist(w http.ResponseWriter, r *http.Request, apt bo
 
 	meta := s.meta.Parse(r)
 	ctx := context.WithValue(r.Context(), tracing.Key, tracing.NewTracer(false))
-	urls, err := s.resolveMirrorlist(ctx, meta, apt)
+	officialIndex := apt && r.URL.Query().Get("official_index") == "1"
+	list, err := s.resolveMirrorlist(ctx, meta, apt, officialIndex)
 	if err != nil {
 		switch {
+		case errors.Is(err, errOfficialIndexUnsupported):
+			http.Error(w, err.Error(), http.StatusBadRequest)
 		case errors.Is(err, ErrInvalidPath):
 			http.Error(w, "Invalid repository path", http.StatusBadRequest)
 		case errors.Is(err, errMirrorlistNotFound):
@@ -162,13 +165,16 @@ func (s *Server) handleMirrorlist(w http.ResponseWriter, r *http.Request, apt bo
 		}
 		return
 	}
-	if len(urls) == 0 {
+	if len(list.URLs) == 0 {
 		http.NotFound(w, r)
 		return
 	}
 
 	var body strings.Builder
-	for i, url := range urls {
+	if list.OfficialURL != "" {
+		fmt.Fprintf(&body, "%s\tpriority:0 type:index\n", list.OfficialURL)
+	}
+	for i, url := range list.URLs {
 		if apt {
 			fmt.Fprintf(&body, "%s\tpriority:%d\n", url, i+1)
 		} else {

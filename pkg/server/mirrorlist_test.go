@@ -3,7 +3,11 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -226,4 +230,137 @@ func TestMirrorlistReturnsServiceUnavailableWithoutCache(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, mirrorlistRequest(http.MethodGet, "/api/apt/mirrorlist/repo"))
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+func TestAPTMirrorlistOfficialIndex(t *testing.T) {
+	for _, repo := range []struct{ cname, official string }{
+		{"debian-security", "https://security.debian.org/debian-security/"},
+		{"ubuntu", "https://security.ubuntu.com/ubuntu/"},
+	} {
+		t.Run(repo.cname, func(t *testing.T) {
+			var queries atomic.Int32
+			s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				queries.Add(1)
+				_, _ = w.Write([]byte(strings.ReplaceAll(mirrorlistInfluxResponse, "repo", repo.cname)))
+			}))
+			defer closeServer()
+			path := "/api/apt/mirrorlist/" + repo.cname
+			plain := redirectGet(s, path)
+			require.Equal(t, 200, plain.Code)
+			want := repo.official + "\tpriority:0 type:index\n" + plain.Body.String() + repo.official + "\tpriority:4\n"
+			actual := redirectGet(s, path+"?official_index=1")
+			require.Equal(t, 200, actual.Code)
+			assert.Equal(t, want, actual.Body.String())
+			assert.Equal(t, strconv.Itoa(len(want)), actual.Header().Get("Content-Length"))
+			assert.Equal(t, plain.Header().Get("Cache-Control"), actual.Header().Get("Cache-Control"))
+			assert.Equal(t, plain.Header().Get("Vary"), actual.Header().Get("Vary"))
+			head := httptest.NewRecorder()
+			s.ServeHTTP(head, mirrorlistRequest(http.MethodHead, path+"?official_index=1"))
+			assert.Equal(t, 200, head.Code)
+			assert.Empty(t, head.Body.String())
+			assert.Equal(t, actual.Header(), head.Header())
+			for _, query := range []string{"", "?official_index=0", "?official_index=true", "?official_index="} {
+				assert.Equal(t, plain.Body.String(), redirectGet(s, path+query).Body.String())
+			}
+			rpmPath := "/api/rpm/mirrorlist/" + repo.cname
+			assert.Equal(t, redirectGet(s, rpmPath).Body.String(), redirectGet(s, rpmPath+"?official_index=1").Body.String())
+			redirect := redirectGet(s, "/"+repo.cname+"/pool/package.deb")
+			assert.Equal(t, 302, redirect.Code)
+			assert.Equal(t, "https://near.example.com/"+repo.cname+"/pool/package.deb", redirect.Header().Get("Location"))
+			assert.EqualValues(t, 1, queries.Load(), "all response formats share monitor data")
+		})
+	}
+}
+
+func TestOfficialIndexFallbackWithoutMirrors(t *testing.T) {
+	for _, scenario := range []string{"empty", "excluded", "unavailable"} {
+		t.Run(scenario, func(t *testing.T) {
+			s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch scenario {
+				case "unavailable":
+					http.Error(w, "unavailable", 503)
+				case "excluded":
+					_, _ = w.Write([]byte(mirrorlistInfluxResponse))
+				default:
+					_, _ = w.Write([]byte(`{"results":[{}]}`))
+				}
+			}))
+			defer closeServer()
+			if scenario == "excluded" {
+				for _, site := range []string{"tuna", "ustc"} {
+					patchRedirectSite(t, s, site, map[string]any{"blacklist": []string{"ubuntu"}})
+				}
+			}
+			actual := redirectGet(s, "/api/apt/mirrorlist/ubuntu?official_index=1")
+			require.Equal(t, 200, actual.Code)
+			assert.Equal(t, "https://security.ubuntu.com/ubuntu/\tpriority:0 type:index\nhttps://security.ubuntu.com/ubuntu/\tpriority:1\n", actual.Body.String())
+			plain := redirectGet(s, "/api/apt/mirrorlist/ubuntu")
+			if scenario == "unavailable" {
+				assert.Equal(t, 503, plain.Code)
+			} else {
+				assert.Equal(t, 404, plain.Code)
+			}
+		})
+	}
+}
+
+func TestOfficialIndexUsesStaleMonitorData(t *testing.T) {
+	var queries atomic.Int32
+	s, closeServer := newMirrorlistTestServer(t, 0, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if queries.Add(1) > 1 {
+			http.Error(w, "unavailable", 503)
+			return
+		}
+		_, _ = w.Write([]byte(mirrorlistInfluxResponse))
+	}))
+	defer closeServer()
+	first := redirectGet(s, "/api/apt/mirrorlist/ubuntu?official_index=1")
+	require.Equal(t, 200, first.Code)
+	assert.Contains(t, first.Body.String(), "near.example.com")
+	second := redirectGet(s, "/api/apt/mirrorlist/ubuntu?official_index=1")
+	assert.Equal(t, 200, second.Code)
+	assert.Equal(t, first.Body.String(), second.Body.String())
+	assert.EqualValues(t, 2, queries.Load())
+}
+
+func TestOfficialIndexNormalizationAndDeduplication(t *testing.T) {
+	s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		response := strings.ReplaceAll(mirrorlistInfluxResponse, `"url":"/repo"`, `"url":"https://security.ubuntu.com/ubuntu"`)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer closeServer()
+	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "redirects.json"), []byte(`{
+		"redirects":[{"match":"^/alias$","target":"/ubuntu"}]
+	}`), 0600))
+	require.NoError(t, s.LoadMirrorZD())
+	patchRedirectSite(t, s, "ustc", map[string]any{"mirrorlist_paths": map[string]string{"ubuntu": "/custom-root"}})
+	w := redirectGet(s, "/api/apt/mirrorlist/alias?official_index=1")
+	require.Equal(t, 200, w.Code)
+	assert.Equal(t, "https://security.ubuntu.com/ubuntu/\tpriority:0 type:index\nhttps://ustc.example.com/custom-root/\tpriority:1\nhttps://security.ubuntu.com/ubuntu/\tpriority:2\n", w.Body.String())
+}
+
+func TestOfficialIndexValidation(t *testing.T) {
+	s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		t.Error("invalid requests should not query monitor data")
+	}))
+	defer closeServer()
+	for _, test := range []struct {
+		path string
+		code int
+	}{
+		{"debian", 400},
+		{"ubuntu-ports", 400},
+		{"missing", 400},
+		{"", 404},
+		{"ubuntu/extra", 404},
+		{"ubuntu/%00", 400},
+	} {
+		w := redirectGet(s, "/api/apt/mirrorlist/"+test.path+"?official_index=1")
+		assert.Equal(t, test.code, w.Code, test.path)
+	}
 }

@@ -270,6 +270,45 @@ Components: main
 The APT response assigns `priority:1` to the highest-scoring URL and increasing
 priority numbers to the remaining fallback URLs.
 
+For Debian security and Ubuntu security updates, add `?official_index=1` to
+prefer official indexes while downloading packages from scored mirrors:
+
+```text
+deb mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/debian-security?official_index=1 bookworm-security main
+deb mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/ubuntu?official_index=1 noble-security main restricted universe multiverse
+```
+
+The equivalent deb822 entries (use the entry for your distribution) are:
+
+```text
+Types: deb
+URIs: mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/debian-security?official_index=1
+Suites: bookworm-security
+Components: main
+
+Types: deb
+URIs: mirror+https://mirrors.cernet.edu.cn/api/apt/mirrorlist/ubuntu?official_index=1
+Suites: noble-security
+Components: main restricted universe multiverse
+```
+
+Keep Ubuntu security in a separate source entry. Regular, updates, and backports
+suites should continue using the URL without this parameter; the server does not
+inspect the suites configured in APT. This mode supports `debian-security` and
+`ubuntu`, but not `ubuntu-ports` or other repositories. An unsupported repository
+with `official_index=1` returns HTTP 400. Other parameter values leave the list
+unchanged.
+
+The list starts with `https://security.debian.org/debian-security/` or
+`https://security.ubuntu.com/ubuntu/` tagged `priority:0 type:index`, followed by
+the eligible mirrors with priorities starting at 1. The official URL appears
+again after all mirrors as the final fallback without a type restriction.
+Packages therefore prefer mirrors and fall back to the official server if, for
+example, mirrors have not synchronized a new package yet. If the official index
+cannot be fetched, APT may try mirror indexes too. Without eligible mirrors the
+list contains only the two official entries. Monitor failures reuse stale cached
+data when available, otherwise this mode still returns the official entries.
+
 DNF and DNF5 can use the RPM-specific endpoint as a regular `mirrorlist`.
 RPM repository variables are expanded by DNF before it requests the list, so a
 repository-specific path can follow the cname. For example:

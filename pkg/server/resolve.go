@@ -56,6 +56,7 @@ func (s *Server) queryInflux(ctx context.Context, cname string) (res influxdb.Re
 // ErrInvalidPath identifies malformed requests or invalid global rewrite output.
 var ErrInvalidPath = errors.New("invalid repository path")
 var errMirrorlistNotFound = errors.New("invalid mirrorlist repository")
+var errOfficialIndexUnsupported = errors.New("official_index is only supported for debian-security and ubuntu")
 
 // normalizeMeta must run under configMu, together with site rule evaluation.
 func (s *Server) normalizeMeta(ctx context.Context, meta requestmeta.RequestMeta) (requestmeta.RequestMeta, error) {
@@ -183,31 +184,46 @@ func candidateURLs(scores scoring.Scores, scheme string) []string {
 
 // resolveMirrorlist normalizes its repository path using the same snapshot as
 // site configuration. Path blacklists and whitelists intentionally do not apply.
-func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.RequestMeta, apt bool) ([]string, error) {
+func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.RequestMeta, apt, officialIndex bool) (list mirrorlist, err error) {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
 	if meta.CName == "" {
-		return nil, errMirrorlistNotFound
+		return list, errMirrorlistNotFound
 	}
 	meta.Mirrorlist = true
-	meta, err := s.normalizeMeta(ctx, meta)
+	meta, err = s.normalizeMeta(ctx, meta)
 	if err != nil {
-		return nil, err
+		return list, err
 	}
 	if apt && meta.Tail != "" {
-		return nil, errMirrorlistNotFound
+		return list, errMirrorlistNotFound
 	}
 	decodedTail, err := url.PathUnescape(meta.Tail)
 	if err != nil {
-		return nil, ErrInvalidPath
+		return list, ErrInvalidPath
 	}
 	tail, ok := cleanMirrorlistTail(decodedTail)
 	if !ok {
-		return nil, ErrInvalidPath
+		return list, ErrInvalidPath
+	}
+	if apt && officialIndex {
+		switch meta.CName {
+		case "debian-security":
+			list.OfficialURL = "https://security.debian.org/debian-security/"
+		case "ubuntu":
+			list.OfficialURL = "https://security.ubuntu.com/ubuntu/"
+		default:
+			return list, errOfficialIndexUnsupported
+		}
 	}
 	res, err := s.monitorResults(ctx, meta)
 	if err != nil {
-		return nil, err
+		if list.OfficialURL == "" {
+			return list, err
+		}
+		// Official repositories remain usable without monitor data.
+		list.URLs = []string{list.OfficialURL}
+		return list, nil
 	}
 	scores := s.resolveBest(ctx, res, meta, 0)
 	candidates := make(scoring.Scores, 0, len(scores))
@@ -225,7 +241,22 @@ func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.Request
 			break
 		}
 	}
-	return appendMirrorlistTail(candidateURLs(candidates, meta.Scheme), tail), nil
+	list.URLs = appendMirrorlistTail(candidateURLs(candidates, meta.Scheme), tail)
+	if list.OfficialURL != "" {
+		mirrors := make([]string, 0, len(list.URLs)+1)
+		for _, candidate := range list.URLs {
+			if candidate != list.OfficialURL {
+				mirrors = append(mirrors, candidate)
+			}
+		}
+		list.URLs = append(mirrors, list.OfficialURL)
+	}
+	return list, nil
+}
+
+type mirrorlist struct {
+	URLs        []string
+	OfficialURL string
 }
 
 func calcDeltaCutoff(res influxdb.Result) int {
