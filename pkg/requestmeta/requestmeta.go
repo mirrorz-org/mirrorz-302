@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/geo"
@@ -13,6 +14,8 @@ import (
 type RequestMeta struct {
 	CName string
 	Tail  string
+	// Mirrorlist requests deliberately ignore repository path restrictions.
+	Mirrorlist bool
 
 	Scheme string
 	IP     net.IP
@@ -72,8 +75,8 @@ func (m RequestMeta) String() string {
 }
 
 func (p *Parser) CNameAndTail(r *http.Request) (cname string, tail string) {
-	pathParts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
-	cname = pathParts[0]
+	pathParts := strings.SplitN(strings.TrimPrefix(r.URL.EscapedPath(), "/"), "/", 2)
+	cname, _ = url.PathUnescape(pathParts[0])
 	if len(pathParts) == 2 {
 		tail = "/" + pathParts[1]
 	}

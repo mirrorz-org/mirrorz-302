@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/logging"
 )
 
@@ -18,14 +19,14 @@ const (
 	StatusExpired
 )
 
-// IP, label to start, last timestamp, url
+// Resolved holds cached data for one client's canonical repository request.
 type Resolved struct {
 	start time.Time // time of last write
 	last  time.Time // time of last read
 
-	Url        string
-	Resolve    string // only used in resolveExist
-	Candidates []string
+	// Source is the immutable monitor snapshot. Path-dependent exclusions and
+	// scoring are applied per request, never cached for the whole repository.
+	Source influxdb.Result
 }
 
 type ResolveCache struct {
@@ -85,7 +86,7 @@ func (c *ResolveCache) GC(cur time.Time) {
 		}
 		if cur.Sub(r.start) >= c.ttl && cur.Sub(r.last) >= c.ttl {
 			c.m.Delete(k)
-			cacheGCLogger.Infof("Resolved GC %s: %s\n", k, r.Url)
+			cacheGCLogger.Infof("Resolved GC %s (%d monitor records)\n", k, len(r.Source))
 		}
 		return true
 	})

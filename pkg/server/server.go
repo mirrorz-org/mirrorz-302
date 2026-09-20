@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -148,27 +149,19 @@ func (s *Server) handleMirrorlist(w http.ResponseWriter, r *http.Request, apt bo
 	}
 
 	meta := s.meta.Parse(r)
-	if meta.CName == "" || (apt && meta.Tail != "") {
-		http.NotFound(w, r)
-		return
-	}
-	tail := ""
-	if !apt {
-		var ok bool
-		tail, ok = cleanMirrorlistTail(meta.Tail)
-		if !ok {
-			http.Error(w, "Invalid repository path", http.StatusBadRequest)
-			return
-		}
-	}
-
 	ctx := context.WithValue(r.Context(), tracing.Key, tracing.NewTracer(false))
-	urls, err := s.resolveCandidates(ctx, meta)
+	urls, err := s.resolveMirrorlist(ctx, meta, apt)
 	if err != nil {
-		http.Error(w, "Mirror information is temporarily unavailable", http.StatusServiceUnavailable)
+		switch {
+		case errors.Is(err, ErrInvalidPath):
+			http.Error(w, "Invalid repository path", http.StatusBadRequest)
+		case errors.Is(err, errMirrorlistNotFound):
+			http.NotFound(w, r)
+		default:
+			http.Error(w, "Mirror information is temporarily unavailable", http.StatusServiceUnavailable)
+		}
 		return
 	}
-	urls = appendMirrorlistTail(urls, tail)
 	if len(urls) == 0 {
 		http.NotFound(w, r)
 		return
@@ -258,10 +251,15 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	ctx := context.WithValue(r.Context(), tracing.Key, tracer)
 	meta := s.meta.Parse(r)
 	url, err := s.Resolve(ctx, meta)
+	if err != nil {
+		tracer.Printf("error: %v\n", err)
+	}
 
 	if traceEnabled {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		tracer.WriteTo(w)
+	} else if errors.Is(err, ErrInvalidPath) {
+		http.Error(w, "Invalid repository path", http.StatusBadRequest)
 	} else if url == "" || err != nil {
 		http.NotFound(w, r)
 	} else {
@@ -269,7 +267,7 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		if r.URL.RawQuery != "" {
 			query = "?" + r.URL.RawQuery
 		}
-		http.Redirect(w, r, fmt.Sprintf("%s%s%s", url, meta.Tail, query), http.StatusFound)
+		http.Redirect(w, r, url+query, http.StatusFound)
 	}
 }
 

@@ -150,6 +150,83 @@ configuration in `config.json`, for example `sites/ustc/config.json`.
   - Reload the site configuration with `SIGHUP` to apply changes and clear cached
     redirect results.
 
+### Path rewrites and availability
+
+Put global rules in `redirects.json` directly inside `mirrorz-d-directory`
+(normally `mirrorz-config/sites/redirects.json`). They match the complete
+request path before the cname is selected:
+
+```json
+{
+  "redirects": [
+    {"match": "^/raspberrypi/debian(/.*)?$", "target": "/raspberrypi${1}"}
+  ]
+}
+```
+
+Site `config.json` files can add rules keyed by the resulting canonical cname:
+
+```json
+{
+  "redirects": {
+    "raspberrypi": {
+      "rewrite": [{"match": "^/(.*)$", "target": "/debian/${1}"}]
+    },
+    "openwrt": {
+      "blacklist": ["^/releases/24\\.10\\.6(/|$)"]
+    }
+  }
+}
+```
+
+Site rules match paths **relative to the repository root**. For example,
+`/raspberrypi/dists/bookworm/InRelease` supplies `/dists/bookworm/InRelease` to
+the site rule. If the monitor reports `/archive.raspberrypi.org`, the result
+is `/archive.raspberrypi.org/debian/dists/bookworm/InRelease`. Endpoint base
+paths and absolute repository URLs keep their existing meaning.
+
+* `rewrite` is an ordered array of `match` regexes and `target` replacement
+  templates. Matching uses Go's `regexp` syntax and must cover the whole path.
+  The first match wins; rewrites do not chain. Targets support `${1}` and
+  `${name}` captures, and `$$` for a literal dollar sign. They replace the
+  entire matched path; include a capture to preserve its suffix.
+* `blacklist` and `whitelist` are arrays of regexes tested against the standard
+  repository-relative path **before** rewriting. A blacklist match excludes
+  the site for this request. A non-empty whitelist requires at least one
+  match. Blacklist wins, including over endpoint preferences. Unlike rewrite
+  matches, these regexes may match part of the path; use anchors as needed.
+* Path exclusion means the site lacks this data. Other sites are still tried;
+  404 is returned if none qualify. Existing top-level cname blacklists and
+  whitelists continue to apply independently.
+* Paths use escaped URL spelling, including `%2F` and `%25`. Query strings are
+  not matched or changed. A repository root is matched as `/`, including a
+  request without a trailing slash. Without a matching rewrite, its original
+  trailing-slash behavior is preserved. Targets must start with `/` and may
+  not contain an authority, query, fragment, dot segments, or control characters.
+* A missing global file or omitted/empty rule collections leave requests
+  unchanged. Invalid regexes, unknown capture references, and unknown rule
+  fields reject the configuration. Global and site rules reload atomically
+  with `SIGHUP`; a failed reload retains the old rules and cache.
+
+APT/RPM mirrorlists deliberately ignore path blacklists and whitelists: the
+client handles missing data. A site with `rewrite` rules for a cname must
+add `"mirrorlist_paths": {"raspberrypi": "/raspberrypi/debian"}` at the site
+configuration's top level to appear in that repository's lists. These paths
+are complete repository roots relative to the endpoint, and declare that the
+client can append repository paths directly. Arbitrary file rewrites cannot
+be represented by a mirrorlist. RPM appends its requested directory to the
+declared root; a blacklist does not remove a site with a declared root.
+
+Global normalization also applies to the repository portion of mirrorlist
+and scoring API requests. The cache shares monitor data by canonical cname
+and client preferences; each request applies its own path rules and scoring.
+`?trace=1` shows canonical paths, path exclusions, and the final target.
+
+The deployed configuration belongs in mirrorz-config: global rules in
+`sites/redirects.json` and site rules in `sites/<site>/config.json`.
+The OpenWrt blacklist above illustrates a historical missing release, not a
+current recommendation to exclude that release.
+
 ### Note
 
 #### Endpoints for debugging
@@ -208,7 +285,7 @@ gpgcheck=1
 The RPM response is a plain URL-per-line list in scoring order. DNF normally
 uses this as its initial order, but `fastestmirror=True` deliberately overrides
 the server-provided order. The server uses only the cname (`rocky` above) to
-select and cache mirrors, then safely appends the expanded repository path to
+query and cache monitor data, then safely appends the expanded repository path to
 each URL. RPM metalink output is not currently provided.
 
 Both endpoints accept `GET` and `HEAD`. Query parameters such as DNF's

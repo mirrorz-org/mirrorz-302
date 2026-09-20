@@ -2,14 +2,17 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/mirrorz-org/mirrorz-302/pkg/caching"
 	"github.com/mirrorz-org/mirrorz-302/pkg/influxdb"
+	"github.com/mirrorz-org/mirrorz-302/pkg/mirrorzdb"
 	"github.com/mirrorz-org/mirrorz-302/pkg/requestmeta"
 	"github.com/mirrorz-org/mirrorz-302/pkg/scoring"
 	"github.com/mirrorz-org/mirrorz-302/pkg/tracing"
@@ -50,82 +53,99 @@ func (s *Server) queryInflux(ctx context.Context, cname string) (res influxdb.Re
 	return excludeOfflineMirrors(res), true
 }
 
-func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (url string, err error) {
+// ErrInvalidPath identifies malformed requests or invalid global rewrite output.
+var ErrInvalidPath = errors.New("invalid repository path")
+var errMirrorlistNotFound = errors.New("invalid mirrorlist repository")
+
+// normalizeMeta must run under configMu, together with site rule evaluation.
+func (s *Server) normalizeMeta(ctx context.Context, meta requestmeta.RequestMeta) (requestmeta.RequestMeta, error) {
+	input := "/" + url.PathEscape(meta.CName) + meta.Tail
+	canonical, err := s.mirrorzd.Normalize(input)
+	if err != nil {
+		return meta, fmt.Errorf("%w: %v", ErrInvalidPath, err)
+	}
+	parts := strings.SplitN(strings.TrimPrefix(canonical, "/"), "/", 2)
+	cname, err := url.PathUnescape(parts[0])
+	if err != nil || !mirrorzdb.ValidCName(cname) {
+		return meta, fmt.Errorf("%w: invalid cname", ErrInvalidPath)
+	}
+	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
+	tracer.Printf("Request path: %s; canonical path: %s\n", input, canonical)
+	meta.CName, meta.Tail = cname, ""
+	if len(parts) == 2 {
+		meta.Tail = "/" + parts[1]
+	}
+	return meta, nil
+}
+
+// monitorResults shares an unfiltered snapshot between redirects and lists.
+// Only mirrorlists retain the existing stale-data fallback on query failure.
+func (s *Server) monitorResults(ctx context.Context, meta requestmeta.RequestMeta) (influxdb.Result, error) {
+	key := requestmeta.CacheKey(meta)
+	cached, status := s.resolved.Load(key)
+	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
+	if status == caching.StatusFresh && cached.Source != nil && !tracer.Enabled() {
+		s.resolved.Touch(key)
+		return cached.Source, nil
+	}
+	res, ok := s.queryInflux(ctx, meta.CName)
+	if !ok {
+		if meta.Mirrorlist && len(cached.Source) > 0 {
+			s.resolved.Touch(key)
+			return cached.Source, nil
+		}
+		return nil, fmt.Errorf("queryInflux failed")
+	}
+	s.resolved.Store(key, caching.Resolved{Source: res})
+	return res, nil
+}
+
+// Resolve returns the complete target URL, excluding its query string.
+// Path-dependent selection uses cached monitor data, not cached redirect URLs.
+func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (string, error) {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
+	meta.Mirrorlist = false
+	meta, err := s.normalizeMeta(ctx, meta)
+	if err != nil {
+		return "", err
+	}
+	res, err := s.monitorResults(ctx, meta)
+	if err != nil {
+		return "", err
+	}
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
-
-	cname := meta.CName
-	tracer.Printf("Labels: %v\n", meta.Labels)
-	tracer.Printf("IP: %s\n", meta.IP)
-	tracer.Printf("Scheme: %s\n", meta.Scheme)
-
-	logFunc := func(url string, score scoring.Score, char string) {
-		if url != "" {
-			// record detail in resolve log
+	tracer.Printf("Labels: %v\nIP: %s\nScheme: %s\n", meta.Labels, meta.IP, meta.Scheme)
+	for _, score := range s.resolveBest(ctx, res, meta, 0) {
+		endpoints, _ := s.mirrorzd.Lookup(score.Abbr)
+		for _, endpoint := range endpoints {
+			if endpoint.Label != score.Label {
+				continue
+			}
+			tail, rule, err := endpoint.Redirects[meta.CName].ApplyWithRule(meta.Tail)
+			if err != nil {
+				continue
+			}
+			target := appendRepositoryPath(repositoryURL(score, meta.Scheme), tail)
+			if rule != "" {
+				tracer.Printf("Site rewrite on %s: %s\n", endpoint.Label, rule)
+			}
+			tracer.Printf("Path on %s: %s -> %s; target: %s\n", endpoint.Label, meta.Tail, tail, target)
 			s.resolveLogger.Debugf("%s", tracer.String())
-			resolvedLog := fmt.Sprintf("%s: %s %s %s",
-				char, url, meta,
-				score)
-			s.resolveLogger.Infof("%s\n", resolvedLog)
-			tracer.Printf("%s\n", resolvedLog)
-		} else {
-			// record detail in fail log
-			s.failLogger.Debugf("%s", tracer.String())
-			failLog := fmt.Sprintf("F: %s", meta)
-			s.failLogger.Infof("%s\n", failLog)
-			tracer.Printf("%s\n", failLog)
+			s.resolveLogger.Infof("R: %s %s %s\n", target, meta, score)
+			return target, nil
 		}
 	}
+	s.failLogger.Debugf("%s", tracer.String())
+	s.failLogger.Infof("F: %s\n", meta)
+	return "", nil
+}
 
-	// check if already resolved / cached
-	key := requestmeta.CacheKey(meta)
-	keyResolved, cacheStatus := s.resolved.Load(key)
-
-	// all valid, use cached result
-	if cacheStatus == caching.StatusFresh && !tracer.Enabled() {
-		// update timestamp
-		s.resolved.Store(key, keyResolved)
-		url = keyResolved.Url
-		logFunc(url, scoring.Score{}, "C") // C for cache
-		return
+func appendRepositoryPath(root, tail string) string {
+	if tail == "" {
+		return root
 	}
-
-	res, ok := s.queryInflux(ctx, cname)
-	if !ok {
-		return "", fmt.Errorf("queryInflux failed")
-	}
-
-	var resolve, repo string
-
-	if cacheStatus == caching.StatusStale {
-		resolve, repo = s.ResolveExist(ctx, res, keyResolved.Resolve, meta)
-	}
-
-	var chosenScore scoring.Score
-	if resolve == "" && repo == "" {
-		// ResolveExist failed
-		scores := s.resolveBest(ctx, res, meta, 0)
-		if len(scores) > 0 {
-			chosenScore = scores[0]
-			resolve = chosenScore.Resolve
-			repo = chosenScore.Repo
-		}
-	}
-
-	if resolve == "" && repo == "" {
-		url = ""
-	} else if strings.HasPrefix(repo, "http://") || strings.HasPrefix(repo, "https://") {
-		url = repo
-	} else {
-		url = fmt.Sprintf("%s://%s%s", meta.Scheme, resolve, repo)
-	}
-	s.resolved.Store(key, caching.Resolved{
-		Url:     url,
-		Resolve: resolve,
-	})
-	logFunc(url, chosenScore, "R") // R for resolve
-	return
+	return strings.TrimRight(root, "/") + tail
 }
 
 func repositoryURL(score scoring.Score, scheme string) string {
@@ -161,37 +181,51 @@ func candidateURLs(scores scoring.Scores, scheme string) []string {
 	return urls
 }
 
-// resolveCandidates returns all eligible repository roots in scoring order.
-// A cached stale list is retained as a fallback if the monitor database is
-// temporarily unavailable.
-func (s *Server) resolveCandidates(ctx context.Context, meta requestmeta.RequestMeta) ([]string, error) {
+// resolveMirrorlist normalizes its repository path using the same snapshot as
+// site configuration. Path blacklists and whitelists intentionally do not apply.
+func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.RequestMeta, apt bool) ([]string, error) {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
-	key := requestmeta.CacheKey(meta)
-	cached, cacheStatus := s.resolved.Load(key)
-	if cacheStatus == caching.StatusFresh && cached.Candidates != nil {
-		s.resolved.Touch(key)
-		return cached.Candidates, nil
+	if meta.CName == "" {
+		return nil, errMirrorlistNotFound
 	}
-
-	res, ok := s.queryInflux(ctx, meta.CName)
+	meta.Mirrorlist = true
+	meta, err := s.normalizeMeta(ctx, meta)
+	if err != nil {
+		return nil, err
+	}
+	if apt && meta.Tail != "" {
+		return nil, errMirrorlistNotFound
+	}
+	decodedTail, err := url.PathUnescape(meta.Tail)
+	if err != nil {
+		return nil, ErrInvalidPath
+	}
+	tail, ok := cleanMirrorlistTail(decodedTail)
 	if !ok {
-		if len(cached.Candidates) > 0 {
-			s.resolved.Touch(key)
-			return cached.Candidates, nil
-		}
-		return nil, fmt.Errorf("queryInflux failed")
+		return nil, ErrInvalidPath
 	}
-
+	res, err := s.monitorResults(ctx, meta)
+	if err != nil {
+		return nil, err
+	}
 	scores := s.resolveBest(ctx, res, meta, 0)
-	urls := candidateURLs(scores, meta.Scheme)
-	resolved := caching.Resolved{Candidates: urls}
-	if len(scores) > 0 {
-		resolved.Url = repositoryURL(scores[0], meta.Scheme)
-		resolved.Resolve = scores[0].Resolve
+	candidates := make(scoring.Scores, 0, len(scores))
+	for _, score := range scores {
+		endpoints, _ := s.mirrorzd.Lookup(score.Abbr)
+		for _, endpoint := range endpoints {
+			if endpoint.Label != score.Label {
+				continue
+			}
+			path, declared := endpoint.MirrorlistPaths[meta.CName]
+			if declared {
+				score.Repo = path
+			}
+			candidates = append(candidates, score)
+			break
+		}
 	}
-	s.resolved.Store(key, resolved)
-	return urls, nil
+	return appendMirrorlistTail(candidateURLs(candidates, meta.Scheme), tail), nil
 }
 
 func calcDeltaCutoff(res influxdb.Result) int {
@@ -245,6 +279,11 @@ func (s *Server) ResolveBest(ctx context.Context, meta requestmeta.RequestMeta) 
 	defer s.configMu.RUnlock()
 	if meta.CName == "" {
 		return s.resolveBestAll(ctx, meta)
+	}
+	var err error
+	meta, err = s.normalizeMeta(ctx, meta)
+	if err != nil {
+		return nil
 	}
 	res, ok := s.queryInflux(ctx, meta.CName)
 	if !ok {

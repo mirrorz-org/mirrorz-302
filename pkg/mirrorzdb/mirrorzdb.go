@@ -43,8 +43,10 @@ type Endpoint struct {
 	// used so that `avoid<SiteLabel>` excludes the whole site.
 	SiteLabel string
 	// Repository restrictions inherited from the site configuration during Load.
-	Blacklist []string
-	Whitelist []string
+	Blacklist       []string
+	Whitelist       []string
+	Redirects       map[string]Redirects
+	MirrorlistPaths map[string]string
 }
 
 // endpointJSON is used to parse Endpoint from JSON.
@@ -148,6 +150,15 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 		if len(e.Whitelist) > 0 && !slices.Contains(e.Whitelist, m.CName) {
 			return "repository not in site whitelist", false
 		}
+		if !m.Mirrorlist {
+			if _, err := e.Redirects[m.CName].Apply(m.Tail); err != nil {
+				return err.Error(), false
+			}
+		} else if len(e.Redirects[m.CName].Rewrite) > 0 {
+			if _, declared := e.MirrorlistPaths[m.CName]; !declared {
+				return "rewrite requires an explicit mirrorlist path", false
+			}
+		}
 	}
 
 	for _, l := range m.Labels {
@@ -229,17 +240,20 @@ func (e *Endpoint) MatchIPMask(ip net.IP) (longest int) {
 }
 
 type SiteFile struct {
-	Abbrs     []string   `json:"abbrs"`
-	Blacklist []string   `json:"blacklist"`
-	Whitelist []string   `json:"whitelist"`
-	Endpoints []Endpoint `json:"endpoints"`
+	Abbrs           []string             `json:"abbrs"`
+	Blacklist       []string             `json:"blacklist"`
+	Whitelist       []string             `json:"whitelist"`
+	Endpoints       []Endpoint           `json:"endpoints"`
+	Redirects       map[string]Redirects `json:"redirects"`
+	MirrorlistPaths map[string]string    `json:"mirrorlist_paths"`
 }
 
 type MirrorZDatabase struct {
-	mu       sync.RWMutex
-	abbrs    []string
-	labelMap map[string]string
-	abbrMap  map[string][]Endpoint
+	mu        sync.RWMutex
+	abbrs     []string
+	labelMap  map[string]string
+	abbrMap   map[string][]Endpoint
+	redirects Redirects
 }
 
 func NewMirrorZDatabase() *MirrorZDatabase {
@@ -257,6 +271,22 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 	newAbbrs := make([]string, 0, len(folders))
 	newLabelMap := make(map[string]string)
 	newAbbrMap := make(map[string][]Endpoint)
+	// The global file is optional for existing installations. Parse it before
+	// committing any part of the new configuration snapshot.
+	var global globalRedirects
+	content, readErr := os.ReadFile(filepath.Join(path, "redirects.json"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return fmt.Errorf("read redirects.json: %w", readErr)
+	}
+	if readErr == nil {
+		if err := json.Unmarshal(content, &global); err != nil {
+			return fmt.Errorf("parse redirects.json: %w", err)
+		}
+	}
+	globalRules := Redirects{Rewrite: global.Redirects}
+	if err := globalRules.compile(); err != nil {
+		return fmt.Errorf("redirects.json: %w", err)
+	}
 
 	for _, site := range folders {
 		if !site.IsDir() {
@@ -280,12 +310,31 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 		if len(data.Endpoints) == 0 {
 			return fmt.Errorf("MirrorZDatabase.Load: %s/config.json has no endpoints", site.Name())
 		}
+		for cname, rules := range data.Redirects {
+			if !ValidCName(cname) {
+				return fmt.Errorf("%s/config.json: invalid redirects cname %q", site.Name(), cname)
+			}
+			if err := rules.compile(); err != nil {
+				return fmt.Errorf("%s/config.json: redirects[%q]: %w", site.Name(), cname, err)
+			}
+			data.Redirects[cname] = rules
+		}
+		for cname, path := range data.MirrorlistPaths {
+			if !ValidCName(cname) {
+				return fmt.Errorf("%s/config.json: invalid mirrorlist cname %q", site.Name(), cname)
+			}
+			if err := ValidatePath(path); err != nil {
+				return fmt.Errorf("%s/config.json: mirrorlist_paths[%q]: %w", site.Name(), cname, err)
+			}
+		}
 
 		siteLabel := data.Endpoints[0].Label
 		for i := range data.Endpoints {
 			data.Endpoints[i].SiteLabel = siteLabel
 			data.Endpoints[i].Blacklist = data.Blacklist
 			data.Endpoints[i].Whitelist = data.Whitelist
+			data.Endpoints[i].Redirects = data.Redirects
+			data.Endpoints[i].MirrorlistPaths = data.MirrorlistPaths
 		}
 		for _, abbr := range data.Abbrs {
 			if abbr == "" {
@@ -312,6 +361,7 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 	m.abbrs = newAbbrs
 	m.labelMap = newLabelMap
 	m.abbrMap = newAbbrMap
+	m.redirects = globalRules
 	m.mu.Unlock()
 	return
 }
