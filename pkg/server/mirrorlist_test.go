@@ -108,8 +108,7 @@ func TestMirrorlistFormatsAndSharedCache(t *testing.T) {
 	assert.Equal(t, "X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host", apt.Header().Get("Vary"))
 	assert.Equal(t, strings.Join([]string{
 		"https://near.example.com/repo/\tpriority:1",
-		"https://generic.example.com/repo/\tpriority:2",
-		"https://ustc.example.com/repo/\tpriority:3",
+		"https://ustc.example.com/repo/\tpriority:2",
 		"",
 	}, "\n"), apt.Body.String())
 	assert.NotContains(t, apt.Body.String(), "countme")
@@ -119,12 +118,11 @@ func TestMirrorlistFormatsAndSharedCache(t *testing.T) {
 	require.Equal(t, http.StatusOK, rpm.Code)
 	assert.Equal(t, strings.Join([]string{
 		"https://near.example.com/repo/",
-		"https://generic.example.com/repo/",
 		"https://ustc.example.com/repo/",
 		"",
 	}, "\n"), rpm.Body.String())
 	assert.NotContains(t, rpm.Body.String(), "priority:")
-	assert.Equal(t, 1, queries, "APT and RPM should share the ordered candidate cache")
+	assert.Equal(t, 1, queries, "APT and RPM should share monitor data")
 
 	redirect := httptest.NewRecorder()
 	s.ServeHTTP(redirect, mirrorlistRequest(http.MethodGet, "/repo/file.rpm"))
@@ -137,6 +135,52 @@ func TestMirrorlistFormatsAndSharedCache(t *testing.T) {
 	assert.Equal(t, http.StatusOK, head.Code)
 	assert.Empty(t, head.Body.String())
 	assert.Equal(t, rpm.Header().Get("Content-Length"), head.Header().Get("Content-Length"))
+}
+
+func TestMirrorlistBestEndpointPerSite(t *testing.T) {
+	for _, test := range []struct {
+		name, ip, label, endpoint string
+		private                   bool
+	}{
+		{name: "higher score overrides configuration order", ip: "192.0.2.1", endpoint: "near"},
+		{name: "tie follows configuration order", ip: "198.51.100.1", endpoint: "generic"},
+		{name: "explicit preference", ip: "192.0.2.1", label: "tuna", endpoint: "generic"},
+		{name: "avoided endpoint", ip: "192.0.2.1", label: "avoidtunanear", endpoint: "generic"},
+		{name: "avoided site", ip: "192.0.2.1", label: "avoidtuna"},
+		{name: "private endpoint inaccessible", ip: "198.51.100.1", label: "tunanear", endpoint: "generic", private: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(mirrorlistInfluxResponse))
+			}))
+			defer closeServer()
+			patchRedirectSite(t, s, "tuna", map[string]any{"endpoints": []map[string]any{
+				{"label": "tuna", "resolve": "generic.example.com", "public": true, "filter": []string{"V4", "V6", "SSL", "NOSSL"}},
+				{"label": "tunanear", "resolve": "near.example.com", "public": !test.private, "filter": []string{"V4", "V6", "SSL", "NOSSL"}, "range": []string{"192.0.2.0/24"}},
+			}})
+			for _, format := range []string{"apt", "rpm"} {
+				r := mirrorlistRequest(http.MethodGet, "/api/"+format+"/mirrorlist/repo")
+				r.Header.Set("X-Real-IP", test.ip)
+				if test.label != "" {
+					r.Header.Set("X-Forwarded-Host", test.label+".mirrors.cernet.edu.cn")
+				}
+				w := httptest.NewRecorder()
+				s.ServeHTTP(w, r)
+				require.Equal(t, http.StatusOK, w.Code)
+				urls := []string{"https://ustc.example.com/repo/"}
+				if test.endpoint != "" {
+					urls = append([]string{"https://" + test.endpoint + ".example.com/repo/"}, urls...)
+				}
+				for i := range urls {
+					if format == "apt" {
+						urls[i] += "\tpriority:" + strconv.Itoa(i+1)
+					}
+				}
+				assert.Equal(t, strings.Join(urls, "\n")+"\n", w.Body.String(), format)
+			}
+		})
+	}
 }
 
 func TestRPMMirrorlistAppendsExpandedRepositoryPath(t *testing.T) {
@@ -249,7 +293,7 @@ func TestAPTMirrorlistOfficialIndex(t *testing.T) {
 			path := "/api/apt/mirrorlist/" + repo.cname
 			plain := redirectGet(s, path)
 			require.Equal(t, 200, plain.Code)
-			want := repo.official + "\tpriority:0 type:index\n" + plain.Body.String() + repo.official + "\tpriority:4\n"
+			want := repo.official + "\tpriority:0 type:index\n" + plain.Body.String() + repo.official + "\tpriority:3\n"
 			actual := redirectGet(s, path+"?official_index=1")
 			require.Equal(t, 200, actual.Code)
 			assert.Equal(t, want, actual.Body.String())

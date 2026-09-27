@@ -247,8 +247,11 @@ current recommendation to exclude that release.
 #### Package-manager mirror lists
 
 The Go backend exposes separate mirror-list formats for APT and RPM clients.
-Both lists contain every eligible endpoint in scoring order and omit duplicate
-repository URLs.
+Both lists contain the best eligible endpoint from each site in scoring order
+and omit duplicate repository URLs. Endpoint selection depends on the client's
+network and preference labels; ties favor the endpoint listed first in the site
+configuration. Other endpoints from the same site are omitted, so clients fall
+back to other listed sites if the selected endpoint fails.
 
 APT 1.6 or newer can use the APT-specific list through the `mirror+https`
 transport. For example, replace `debian` with the repository cname where

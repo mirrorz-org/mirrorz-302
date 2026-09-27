@@ -227,7 +227,7 @@ func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.Request
 		list.URLs = []string{list.OfficialURL}
 		return list, nil
 	}
-	scores := s.resolveBest(ctx, res, meta, 0)
+	scores := s.resolveBest(ctx, res, meta, 1)
 	candidates := make(scoring.Scores, 0, len(scores))
 	for _, score := range scores {
 		endpoints, _ := s.mirrorzd.Lookup(score.Abbr)
@@ -374,7 +374,7 @@ func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requ
 		scoresEndpoints.Sort()
 		for i, score := range scoresEndpoints {
 			tracer.Printf("  score %d: %s\n", i, score)
-			// when mode == 1, keep only the best score per endpoint
+			// When mode == 1, keep only the best endpoint per site.
 			if mode != 1 || i == 0 {
 				scores = append(scores, score)
 			}
