@@ -53,9 +53,9 @@ func (l Score) Less(r Score) bool {
 	}
 	if math.Abs(lGeo-rGeo) > geo.GeoDistanceEpsilon {
 		return lGeo < rGeo
-	} else if l.ISP > r.ISP {
+	} else if l.ISP != r.ISP {
 		// Same "effective" geo distance, prefer matching ISP
-		return true
+		return l.ISP > r.ISP
 	}
 	if l.Delta == 0 {
 		return false

@@ -66,6 +66,14 @@ func TestUnknownScoreIsFallback(t *testing.T) {
 	assert.False(t, preferredByLocation.Less(normal))
 }
 
+func TestMatchingISPIsPreferredOnTiedGeo(t *testing.T) {
+	matching := Score{Geo: 0, ISP: 1, Delta: -2000}
+	fresher := Score{Geo: 0, Delta: -100}
+
+	assert.True(t, matching.Less(fresher))
+	assert.False(t, fresher.Less(matching))
+}
+
 func TestLessEqualScores(t *testing.T) {
 	as := assert.New(t)
 	synced := Score{Geo: 900, Delta: -70000}
