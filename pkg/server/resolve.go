@@ -282,6 +282,9 @@ func calcDeltaCutoff(res influxdb.Result) int {
 func (s *Server) eligibleForRequest(res influxdb.Result, meta requestmeta.RequestMeta) influxdb.Result {
 	eligible := make(influxdb.Result, 0, len(res))
 	for _, item := range res {
+		if item.Value < -s.maxRepoStaleness {
+			continue
+		}
 		endpoints, ok := s.mirrorzd.Lookup(item.Mirror)
 		if !ok {
 			continue
