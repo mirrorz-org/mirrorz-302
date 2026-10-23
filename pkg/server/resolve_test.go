@@ -125,6 +125,49 @@ func TestDeltaCutoffExcludesMirrorsWithoutMatchingEndpoint(t *testing.T) {
 	assert.Equal(t, -10, calcDeltaCutoff(eligible))
 }
 
+func TestDeltaCutoffIgnoresAbsolutelyOutdatedMirrors(t *testing.T) {
+	dir := t.TempDir()
+	writeMirror := func(name, abbr string) {
+		content := `{
+  "abbrs": ["` + abbr + `"],
+  "endpoints": [{
+    "label": "` + abbr + `",
+    "resolve": "` + abbr + `.example.com",
+    "public": true,
+    "filter": ["V4", "SSL"],
+    "range": []
+  }]
+}`
+		writeSiteConfig(t, dir, name, content)
+	}
+	writeMirror("a", "A")
+	writeMirror("b", "B")
+	writeMirror("c", "C")
+	writeMirror("d", "D")
+	writeMirror("e", "E")
+
+	db := mirrorzdb.NewMirrorZDatabase()
+	require.NoError(t, db.Load(dir))
+	s := &Server{mirrorzd: db, maxRepoStaleness: DefaultMaxRepoStaleness}
+	meta := requestmeta.RequestMeta{
+		IP:     net.ParseIP("192.0.2.1"),
+		Scheme: "https",
+	}
+	// Never-synced repositories are reported as O0000000001, i.e. delta is
+	// about -now; three of them overflow the squared sum in calcDeltaCutoff.
+	res := influxdb.Result{
+		{Mirror: "A", Value: -10},
+		{Mirror: "B", Value: -10},
+		{Mirror: "C", Value: -1788252709},
+		{Mirror: "D", Value: -1788252709},
+		{Mirror: "E", Value: -1788252709},
+	}
+
+	eligible := s.eligibleForRequest(res, meta)
+	require.Len(t, eligible, 2)
+	assert.Equal(t, -10, calcDeltaCutoff(eligible))
+}
+
 func TestResolveExistRejectsAbsolutelyOutdatedMirror(t *testing.T) {
 	dir := t.TempDir()
 	content := `{
