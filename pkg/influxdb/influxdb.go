@@ -68,10 +68,11 @@ func (s *Source) Close() {
 }
 
 type Item struct {
-	Value  int
-	Mirror string
-	Time   time.Time
-	Path   string
+	Private bool
+	Value   int
+	Mirror  string
+	Time    time.Time
+	Path    string
 }
 
 // Result is the return type of Query.
@@ -82,7 +83,7 @@ func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 		return nil, s.err
 	}
 	query := influxdb.NewQueryWithParameters(
-		`SELECT LAST("value") AS "value", LAST("disable") AS "disable" FROM "repo" WHERE time > now() - 1h AND "name" = $cname GROUP BY "mirror", "url"`,
+		`SELECT LAST("value") AS "value", LAST("disable") AS "disable", LAST("private") AS "private" FROM "repo" WHERE time > now() - 1h AND "name" = $cname GROUP BY "mirror", "url"`,
 		s.database,
 		"",
 		map[string]interface{}{"cname": cname},
@@ -133,12 +134,14 @@ func itemFromRow(tags map[string]string, columns []string, values []interface{})
 		return Item{}, false, err
 	}
 	disabled, _ := fields["disable"].(bool)
+	private, _ := fields["private"].(bool)
 
 	return Item{
-		Value:  value,
-		Mirror: tags["mirror"],
-		Time:   t,
-		Path:   tags["url"],
+		Private: private,
+		Value:   value,
+		Mirror:  tags["mirror"],
+		Time:    t,
+		Path:    tags["url"],
 	}, disabled, nil
 }
 

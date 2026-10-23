@@ -287,6 +287,11 @@ func (s *Server) eligibleForRequest(res influxdb.Result, meta requestmeta.Reques
 			continue
 		}
 		for _, endpoint := range endpoints {
+			if item.Private {
+				if _, ok := endpoint.MatchPrivateRange(meta); !ok {
+					continue
+				}
+			}
 			if _, ok := endpoint.Match(meta); ok {
 				eligible = append(eligible, item)
 				break
@@ -356,6 +361,12 @@ func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requ
 			if reason, ok := endpoint.Match(meta); !ok {
 				tracer.Printf("    error: %s\n", reason)
 				continue
+			}
+			if item.Private {
+				if reason, ok := endpoint.MatchPrivateRange(meta); !ok {
+					tracer.Printf("    error: private repository: %s\n", reason)
+					continue
+				}
 			}
 			score := scoring.Eval(endpoint, meta)
 			score.Abbr, score.Delta, score.Repo =
