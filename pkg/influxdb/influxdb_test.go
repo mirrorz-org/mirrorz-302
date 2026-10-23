@@ -3,6 +3,7 @@ package influxdb
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +48,8 @@ func TestQueryV1API(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "mirrorz", client.query.Database)
 	require.Contains(t, client.query.Command, `FROM "repo"`)
+	// With more than one selector, InfluxQL returns the start of the time range as time.
+	require.Equal(t, 1, strings.Count(client.query.Command, "LAST("))
 	require.Equal(t, "archlinux", client.query.Parameters["cname"])
 	require.Equal(t, Result{{
 		Value:  -42,

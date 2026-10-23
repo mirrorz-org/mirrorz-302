@@ -82,7 +82,7 @@ func (s *Source) Query(ctx context.Context, cname string) (Result, error) {
 		return nil, s.err
 	}
 	query := influxdb.NewQueryWithParameters(
-		`SELECT LAST("value") AS "value", LAST("disable") AS "disable" FROM "repo" WHERE time > now() - 1h AND "name" = $cname GROUP BY "mirror", "url"`,
+		`SELECT LAST("value") AS "value", "disable" FROM "repo" WHERE time > now() - 1h AND "name" = $cname GROUP BY "mirror", "url"`,
 		s.database,
 		"",
 		map[string]interface{}{"cname": cname},
