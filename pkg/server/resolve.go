@@ -116,7 +116,7 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (str
 		return "", err
 	}
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
-	tracer.Printf("Labels: %v\nIP: %s\nScheme: %s\n", meta.Labels, meta.IP, meta.Scheme)
+	tracer.Printf("Labels: %v\nIP: %s %s %s\nScheme: %s\n", meta.Labels, meta.IP, meta.Region, meta.ISP, meta.Scheme)
 	for _, score := range s.resolveBest(ctx, res, meta, 0) {
 		endpoints, _ := s.mirrorzd.Lookup(score.Abbr)
 		for _, endpoint := range endpoints {
@@ -348,7 +348,7 @@ func (s *Server) resolveBest(ctx context.Context, res influxdb.Result, meta requ
 		}
 		var scoresEndpoints scoring.Scores
 		for _, endpoint := range endpoints {
-			tracer.Printf("  endpoint: %s %s\n", endpoint.Resolve, endpoint.Label)
+			tracer.Printf("  endpoint: %s %s %s %s\n", endpoint.Resolve, endpoint.Label, endpoint.RangeRegion, endpoint.RangeISP)
 			if reason := s.outdatedReason(item.Value, deltaCutoff); reason != "" {
 				tracer.Printf("    error: outdated: %s\n", reason)
 				continue
