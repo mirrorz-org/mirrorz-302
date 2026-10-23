@@ -140,6 +140,33 @@ func (e *Endpoint) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MatchPrivateRange checks access ranges independently of endpoint visibility.
+func (e *Endpoint) MatchPrivateRange(m requestmeta.RequestMeta) (string, bool) {
+	if e.MatchIPMask(m.IP) == 0 {
+		if len(e.PrivateRanges) == 0 {
+			if len(e.RangeCIDR) == 0 {
+				return "private endpoint without access range (disabled)", false
+			}
+			return "ip not in private cidr range", false
+		}
+		if !m.GeoKnown {
+			return "geolocation unavailable for private range", false
+		}
+		status := false
+		for _, pr := range e.PrivateRanges {
+			if (pr.Region == "" || pr.Region == m.Region) &&
+				(pr.ISP == "" || MatchISP(pr.ISP, m.ISP)) {
+				status = true
+				break
+			}
+		}
+		if !status {
+			return "ip not in private range", false
+		}
+	}
+	return "", true
+}
+
 // Match checks if the endpoint can serve the request.
 func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 	// Requests without a repository list sites for the scoring API.
@@ -173,26 +200,9 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 	remoteIPv4 := m.IP.To4() != nil
 
 	// Special filters for private range
-	if !e.Public && e.MatchIPMask(m.IP) == 0 {
-		if len(e.PrivateRanges) == 0 {
-			if len(e.RangeCIDR) == 0 {
-				return "private endpoint without access range (disabled)", false
-			}
-			return "ip not in private cidr range", false
-		}
-		if !m.GeoKnown {
-			return "geolocation unavailable for private range", false
-		}
-		status := false
-		for _, pr := range e.PrivateRanges {
-			if (pr.Region == "" || pr.Region == m.Region) &&
-				(pr.ISP == "" || MatchISP(pr.ISP, m.ISP)) {
-				status = true
-				break
-			}
-		}
-		if !status {
-			return "ip not in private range", false
+	if !e.Public {
+		if reason, ok := e.MatchPrivateRange(m); !ok {
+			return reason, false
 		}
 	}
 

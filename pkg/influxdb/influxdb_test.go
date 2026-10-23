@@ -68,3 +68,19 @@ func TestOldV2ConfigCompatibility(t *testing.T) {
 	require.Equal(t, "mirrorz", source.database)
 	require.NoError(t, source.err)
 }
+
+func TestQueryPrivateRepository(t *testing.T) {
+	for _, private := range []bool{false, true} {
+		client := &fakeQueryClient{response: &influxdb.Response{Results: []influxdb.Result{{Series: []models.Row{{
+			Tags:    map[string]string{"mirror": "test", "url": "/repo"},
+			Columns: []string{"time", "value", "disable", "private"},
+			Values:  [][]interface{}{{"2026-08-08T00:00:00Z", json.Number("-42"), false, private}},
+		}}}}}}
+		source := &Source{database: "mirrorz", client: client}
+		result, err := source.Query(context.Background(), "repo")
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		require.Equal(t, private, result[0].Private)
+		require.Contains(t, client.query.Command, `LAST("private") AS "private"`)
+	}
+}

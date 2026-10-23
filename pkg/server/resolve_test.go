@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -388,5 +389,49 @@ func TestRepositoryRestrictionsReloadClearsCachedResults(t *testing.T) {
 			require.NoError(t, s.LoadMirrorZD())
 			assert.Contains(t, request(), "near.example.com")
 		})
+	}
+}
+
+func TestPrivateRepositoryAccess(t *testing.T) {
+	for _, public := range []bool{false, true} {
+		dir := t.TempDir()
+		config, err := json.Marshal(map[string]interface{}{
+			"abbrs": []string{"A"},
+			"endpoints": []map[string]interface{}{{
+				"label": "a", "resolve": "a.example.com", "public": public,
+				"filter": []string{"V4", "SSL"}, "range": []string{"192.0.2.0/24"},
+				"private_range": [][]string{{"REGION:ZJ", "ISP:CERNET"}},
+			}},
+		})
+		require.NoError(t, err)
+		writeSiteConfig(t, dir, "a", string(config))
+		db := mirrorzdb.NewMirrorZDatabase()
+		require.NoError(t, db.Load(dir))
+		s := &Server{mirrorzd: db, maxRepoStaleness: DefaultMaxRepoStaleness}
+		for _, test := range []struct {
+			name        string
+			private     bool
+			ip          string
+			geoKnown    bool
+			region, isp string
+			allowed     bool
+		}{
+			{name: "public repository outside ranges", ip: "198.51.100.1", allowed: public},
+			{name: "private repository inside CIDR", private: true, ip: "192.0.2.1", allowed: true},
+			{name: "private repository outside ranges", private: true, ip: "198.51.100.1"},
+			{name: "private repository matching geo", private: true, ip: "198.51.100.1", geoKnown: true, region: "ZJ", isp: "CERNET", allowed: true},
+			{name: "private repository mismatching ISP", private: true, ip: "198.51.100.1", geoKnown: true, region: "ZJ", isp: "CHINANET"},
+			{name: "private repository unknown geo", private: true, ip: "198.51.100.1", region: "ZJ", isp: "CERNET"},
+		} {
+			t.Run(fmt.Sprintf("public=%t/%s", public, test.name), func(t *testing.T) {
+				meta := requestmeta.RequestMeta{IP: net.ParseIP(test.ip), Scheme: "https", GeoKnown: test.geoKnown, Region: test.region, ISP: []string{test.isp}}
+				res := influxdb.Result{{Mirror: "A", Private: test.private, Value: -10, Path: "/repo"}}
+				ctx := context.WithValue(context.Background(), tracing.Key, tracing.NewTracer(true))
+				assert.Equal(t, test.allowed, len(s.eligibleForRequest(res, meta)) > 0)
+				assert.Equal(t, test.allowed, len(s.resolveBest(ctx, res, meta, 0)) > 0)
+				endpoints, _ := db.Lookup("A")
+				assert.Equal(t, public, endpoints[0].Public)
+			})
+		}
 	}
 }
