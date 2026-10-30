@@ -378,7 +378,7 @@ func TestOfficialIndexNormalizationAndDeduplication(t *testing.T) {
 		_, _ = w.Write([]byte(response))
 	}))
 	defer closeServer()
-	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "redirects.json"), []byte(`{
+	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "sites", "redirects.json"), []byte(`{
 		"redirects":[{"match":"^/alias$","target":"/ubuntu"}]
 	}`), 0600))
 	require.NoError(t, s.LoadMirrorZD())

@@ -112,7 +112,7 @@ func TestGlobalAndSiteRedirectConfiguration(t *testing.T) {
 	global := []byte(`{"redirects": [
 		{"match": "^/raspberrypi/debian(/.*)?$", "target": "/raspberrypi${1}"}
 	]}`)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "redirects.json"), global, 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sites", "redirects.json"), global, 0600))
 	db := NewMirrorZDatabase()
 	require.NoError(t, db.Load(dir))
 	path, err := db.Normalize("/raspberrypi/debian/dists/bookworm/InRelease")

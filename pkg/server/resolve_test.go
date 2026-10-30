@@ -21,8 +21,11 @@ import (
 
 func writeSiteConfig(t *testing.T, dir, name, content string) {
 	t.Helper()
-	siteDir := filepath.Join(dir, name)
-	require.NoError(t, os.Mkdir(siteDir, 0o700))
+	siteDir := filepath.Join(dir, "sites", name)
+	require.NoError(t, os.MkdirAll(siteDir, 0o700))
+	if _, err := os.Stat(filepath.Join(dir, "cname.json")); os.IsNotExist(err) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "cname.json"), []byte(`{}`), 0o600))
+	}
 	require.NoError(t, os.WriteFile(filepath.Join(siteDir, "config.json"), []byte(content), 0o600))
 }
 
@@ -364,7 +367,7 @@ func TestRepositoryRestrictionsReloadClearsCachedResults(t *testing.T) {
 				return w.Body.String()
 			}
 			assert.Contains(t, request(), "near.example.com")
-			configPath := filepath.Join(s.mirrorzdDir, "tuna", "config.json")
+			configPath := filepath.Join(s.mirrorzdDir, "sites", "tuna", "config.json")
 			original, err := os.ReadFile(configPath)
 			require.NoError(t, err)
 			var config map[string]any
