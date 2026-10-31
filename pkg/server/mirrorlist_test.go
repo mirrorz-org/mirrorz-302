@@ -38,10 +38,10 @@ func newMirrorlistTestServer(t *testing.T, cacheTime int, influxHandler http.Han
 	writeSiteConfig(t, dir, "ustc", ustc)
 
 	s := NewServer(Config{
-		InfluxDB:          influxdb.Config{URL: influx.URL, Database: "mirrorz"},
-		MirrorZDDirectory: dir,
-		DomainLength:      5,
-		CacheTime:         cacheTime,
+		InfluxDB:               influxdb.Config{URL: influx.URL, Database: "mirrorz"},
+		MirrorZConfigDirectory: dir,
+		DomainLength:           5,
+		CacheTime:              cacheTime,
 	})
 	require.NoError(t, s.LoadMirrorZD())
 	return s, influx.Close

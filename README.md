@@ -23,7 +23,7 @@ In 302-go, users are redirected to a mirror site based on their IP, ISP, geoloca
 The running service handles the following signals:
 
 * `SIGHUP` reloads cname aliases, global rules, and site/endpoint configuration from
-  `mirrorz-d-directory`. The new configuration replaces the live database only
+  `mirrorz-config-directory`. The new configuration replaces the live database only
   after it has been loaded successfully; otherwise the previous configuration
   remains active.
 * `SIGUSR1` reads the main YAML configuration file, but currently does not apply
@@ -62,7 +62,7 @@ that both signals will be handled.
 
 ## Site configuration
 
-Set `mirrorz-d-directory` to the mirrorz-config root, for example
+Set `mirrorz-config-directory` to the mirrorz-config root, for example
 `/path/to/mirrorz-config` (previously `/path/to/mirrorz-config/sites`).
 The redirector loads required `cname.json` from this root and static site and
 endpoint configuration from its `sites/` subdirectory. Repository availability, paths, status, and
@@ -159,11 +159,11 @@ After global rewriting, the first path segment is mapped once, with exact,
 case-sensitive matching (e.g. `"Ubuntu": "ubuntu"`). Multi-segment aliases
 require global path rules. Redirects, mirrorlists, and scoring share this logic.
 Aliases reload with sites on `SIGHUP`; failure preserves the old configuration
-and cache. Restart once after changing `mirrorz-d-directory` in the main YAML.
+and cache. Restart once after changing `mirrorz-config-directory` in the main YAML.
 
 ### Path rewrites and availability
 
-Put global rules in `sites/redirects.json` relative to `mirrorz-d-directory`
+Put global rules in `sites/redirects.json` relative to `mirrorz-config-directory`
 (normally `mirrorz-config/sites/redirects.json`). They match the complete
 request path before the cname is selected:
 

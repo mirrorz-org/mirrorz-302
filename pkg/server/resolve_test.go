@@ -233,10 +233,10 @@ func TestResolveRepoFromInfluxWithStaticSiteConfig(t *testing.T) {
 	writeSiteConfig(t, dir, "tuna", config)
 
 	s := NewServer(Config{
-		InfluxDB:          influxdb.Config{URL: influx.URL, Database: "mirrorz"},
-		MirrorZDDirectory: dir,
-		DomainLength:      5,
-		CacheTime:         300,
+		InfluxDB:               influxdb.Config{URL: influx.URL, Database: "mirrorz"},
+		MirrorZConfigDirectory: dir,
+		DomainLength:           5,
+		CacheTime:              300,
 	})
 	require.NoError(t, s.LoadMirrorZD())
 
@@ -256,7 +256,7 @@ func TestScoringAPIIncludesEveryConfiguredAbbr(t *testing.T) {
 	config := `{"abbrs":["TUNA.NANO","TUNA.NEO"],"endpoints":[{"label":"tuna","resolve":"mirrors.tuna.tsinghua.edu.cn","public":true,"filter":["V4","V6","SSL","NOSSL"]}]}`
 	writeSiteConfig(t, dir, "tuna", config)
 
-	s := NewServer(Config{MirrorZDDirectory: dir, DomainLength: 5})
+	s := NewServer(Config{MirrorZConfigDirectory: dir, DomainLength: 5})
 	require.NoError(t, s.LoadMirrorZD())
 	r := httptest.NewRequest(http.MethodGet, "https://mirrors.cernet.edu.cn/api/scoring", nil)
 	r.Header.Set("X-Forwarded-Proto", "https")
@@ -285,10 +285,10 @@ func TestTraceBypassesFreshCache(t *testing.T) {
 	writeSiteConfig(t, dir, "tuna", config)
 
 	s := NewServer(Config{
-		InfluxDB:          influxdb.Config{URL: influx.URL, Database: "mirrorz"},
-		MirrorZDDirectory: dir,
-		DomainLength:      5,
-		CacheTime:         300,
+		InfluxDB:               influxdb.Config{URL: influx.URL, Database: "mirrorz"},
+		MirrorZConfigDirectory: dir,
+		DomainLength:           5,
+		CacheTime:              300,
 	})
 	require.NoError(t, s.LoadMirrorZD())
 
