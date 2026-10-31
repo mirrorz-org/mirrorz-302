@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func makeEndpoint(label, siteLabel string) Endpoint {
+func makeEndpoint(label, site string) Endpoint {
 	e := Endpoint{
-		Label:     label,
-		Resolve:   "example.com",
-		Public:    true,
-		SiteLabel: siteLabel,
+		Label:   label,
+		Resolve: "example.com",
+		Public:  true,
+		Site:    site,
 	}
 	e.Filter.V4 = true
 	e.Filter.V6 = true
@@ -33,9 +33,9 @@ func baseMeta(labels []string) requestmeta.RequestMeta {
 func TestMatchAvoidSite(t *testing.T) {
 	as := assert.New(t)
 	endpoints := []Endpoint{
-		makeEndpoint("ustc", "ustc"),
-		makeEndpoint("ustc6", "ustc"),
-		makeEndpoint("ustccampus", "ustc"),
+		makeEndpoint("ustc", "USTC"),
+		makeEndpoint("ustc6", "USTC"),
+		makeEndpoint("ustccampus", "USTC"),
 	}
 	meta := baseMeta([]string{"avoidustc"})
 	for _, e := range endpoints {
@@ -79,9 +79,9 @@ func TestMatchPreferAndAvoidConflict(t *testing.T) {
 	as.Equal("avoid site", reason)
 }
 
-func TestMatchEmptySiteLabel(t *testing.T) {
+func TestMatchEmptySite(t *testing.T) {
 	as := assert.New(t)
-	// SiteLabel empty (e.g. not set); only endpoint-level avoid applies
+	// Site empty (e.g. not set); only endpoint-level avoid applies
 	e := makeEndpoint("ustc", "")
 	e.Filter.V4 = true
 	e.Filter.V6 = true

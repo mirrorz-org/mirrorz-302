@@ -296,7 +296,7 @@ func TestResolveRepoFromInfluxWithStaticSiteConfig(t *testing.T) {
 
 func TestScoringAPIIncludesEveryConfiguredAbbr(t *testing.T) {
 	dir := t.TempDir()
-	config := `{"abbrs":["TUNA.NANO","TUNA.NEO"],"endpoints":[{"label":"tuna","resolve":"mirrors.tuna.tsinghua.edu.cn","public":true,"filter":["V4","V6","SSL","NOSSL"]}]}`
+	config := `{"site":"TUNA","abbrs":["TUNA.NANO","TUNA.NEO"],"endpoints":[{"label":"tuna","resolve":"mirrors.tuna.tsinghua.edu.cn","public":true,"filter":["V4","V6","SSL","NOSSL"]}]}`
 	writeSiteConfig(t, dir, "tuna", config)
 
 	s := NewServer(Config{MirrorZConfigDirectory: dir, DomainLength: 5})
@@ -312,6 +312,9 @@ func TestScoringAPIIncludesEveryConfiguredAbbr(t *testing.T) {
 	var response ScoringAPIResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 	require.Len(t, response.Scores, 2)
+	for _, score := range response.Scores {
+		assert.Equal(t, "TUNA", score.Site)
+	}
 	assert.ElementsMatch(t, []string{"TUNA.NANO", "TUNA.NEO"}, []string{response.Scores[0].Abbr, response.Scores[1].Abbr})
 }
 
