@@ -38,10 +38,7 @@ type Endpoint struct {
 	RangeRegion   []string
 	RangeISP      []string
 	RangeCIDR     []*net.IPNet
-	// SiteLabel is the representative label of the site this endpoint
-	// belongs to (the first endpoint's label), set during Load. It is
-	// used so that `avoid<SiteLabel>` excludes the whole site.
-	SiteLabel string
+	Site          string
 	// Repository restrictions inherited from the site configuration during Load.
 	Blacklist       []string
 	Whitelist       []string
@@ -162,7 +159,7 @@ func (e *Endpoint) Match(m requestmeta.RequestMeta) (reason string, ok bool) {
 	}
 
 	for _, l := range m.Labels {
-		if e.SiteLabel != "" && l == "avoid"+e.SiteLabel {
+		if l == "avoid"+e.Site {
 			return "avoid site", false
 		}
 		if l == "avoid"+e.Label {
@@ -240,6 +237,7 @@ func (e *Endpoint) MatchIPMask(ip net.IP) (longest int) {
 }
 
 type SiteFile struct {
+	Site            string               `json:"site"`
 	Abbrs           []string             `json:"abbrs"`
 	Blacklist       []string             `json:"blacklist"`
 	Whitelist       []string             `json:"whitelist"`
@@ -341,9 +339,11 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 			}
 		}
 
-		siteLabel := data.Endpoints[0].Label
+		if data.Site == "" {
+			data.Site = data.Endpoints[0].Label
+		}
 		for i := range data.Endpoints {
-			data.Endpoints[i].SiteLabel = siteLabel
+			data.Endpoints[i].Site = data.Site
 			data.Endpoints[i].Blacklist = data.Blacklist
 			data.Endpoints[i].Whitelist = data.Whitelist
 			data.Endpoints[i].Redirects = data.Redirects

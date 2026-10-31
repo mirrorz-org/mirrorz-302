@@ -101,7 +101,8 @@ func (p *Parser) Labels(r *http.Request) (labels []string) {
 	if len(dots) != p.DomainLength {
 		return
 	}
-	labels = strings.Split(dots[0], "-")
+	// case-insensitive labels
+	labels = strings.Split(strings.ToLower(dots[0]), "-")
 	return
 }
 

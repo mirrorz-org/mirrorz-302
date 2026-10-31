@@ -50,7 +50,7 @@ that both signals will be handled.
   - IP: From the perspective of CERNET/CERNET2 and universities, mirror sites can fine-tune based on IP range
   - GEO: As this project is limited to .edu.cn mirror sites, geographical proximity does not necessarily imply fast network connection.
   - advanced users may manually specify a preference list, e.g. `tuna-ustccampus.mirrors.edu.cn`
-    - (experimental) or mix in undesired sites like, e.g. `avoidustccampus`. `avoid` + an endpoint's label excludes that endpoint from candidates; `avoid` + a site's representative label (the first endpoint's label) excludes the whole site. An avoided endpoint is fully excluded rather than just deprioritized.
+    - (experimental) or mix in undesired sites like, e.g. `avoidustccampus`. `avoid` + an endpoint's label excludes that endpoint from candidates; `avoid` + a site's `site` name excludes the whole site. An avoided endpoint is fully excluded rather than just deprioritized.
 * mirror site
   - endpoint: multiple upstreams (CERNET, CMNET, etc), ipv4/ipv6 only endpoint, and default endpoint
   - range: users inside this range should better be redirected to this mirror site
@@ -73,6 +73,7 @@ configuration in `config.json`, for example `sites/ustc/config.json`.
 ```json
 {
   "abbrs": ["USTC"],
+  "site": "USTC",
   "blacklist": [],
   "whitelist": [],
   "endpoints": [
@@ -115,6 +116,8 @@ configuration in `config.json`, for example `sites/ustc/config.json`.
 ```
 
 ### Spec
+
+* `site`: shared name to identify the multiple servers of same site. Defaults to the first endpoint's label when omitted or empty.
 
 * An endpoint in `endpoints`
   - `label`: a unique identifier for this endpoint

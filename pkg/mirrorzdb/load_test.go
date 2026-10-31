@@ -43,7 +43,7 @@ func TestLoadSharedEndpoints(t *testing.T) {
 		require.True(t, ok)
 		require.Len(t, endpoints, 1)
 		assert.Equal(t, "tuna4", endpoints[0].Label)
-		assert.Equal(t, "tuna4", endpoints[0].SiteLabel)
+		assert.Equal(t, "tuna4", endpoints[0].Site)
 		assert.Equal(t, "mirrors4.tuna.tsinghua.edu.cn", endpoints[0].Resolve)
 		assert.Equal(t, []string{"BJ"}, endpoints[0].RangeRegion)
 		assert.Equal(t, []string{"CERNET"}, endpoints[0].RangeISP)
