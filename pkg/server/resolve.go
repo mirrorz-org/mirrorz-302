@@ -330,7 +330,15 @@ func (s *Server) resolveBestAll(ctx context.Context, meta requestmeta.RequestMet
 	for _, abbr := range s.mirrorzd.Abbrs() {
 		res = append(res, influxdb.Item{Mirror: abbr})
 	}
-	return s.resolveBest(ctx, res, meta, 1)
+	scores = s.resolveBest(ctx, res, meta, 1)
+	for i := range scores {
+		endpoints, ok := s.mirrorzd.Lookup(scores[i].Abbr)
+		if ok && len(endpoints) > 0 {
+			// Identify the site by its first configured label.
+			scores[i].Label = endpoints[0].Label
+		}
+	}
+	return scores
 }
 
 // Resolves the best mirror for the given request.
