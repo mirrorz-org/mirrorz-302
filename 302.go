@@ -31,7 +31,7 @@ func LoadConfig(path string) (config server.Config, err error) {
 	logger.Debugf("LoadConfig InfluxDB Bucket: %s\n", config.InfluxDB.Bucket)
 	logger.Debugf("LoadConfig IPDB File: %s\n", config.IPDBFile)
 	logger.Debugf("LoadConfig HTTP Bind Address: %s\n", config.HTTPBindAddress)
-	logger.Debugf("LoadConfig MirrorZ D Directory: %s\n", config.MirrorZDDirectory)
+	logger.Debugf("LoadConfig MirrorZ Config Directory: %s\n", config.MirrorZConfigDirectory)
 	logger.Debugf("LoadConfig Homepage: %s\n", config.Homepage)
 	logger.Debugf("LoadConfig Domain Length: %d\n", config.DomainLength)
 	logger.Debugf("LoadConfig Cache Time: %d\n", config.CacheTime)

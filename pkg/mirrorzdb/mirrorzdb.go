@@ -254,6 +254,7 @@ type MirrorZDatabase struct {
 	labelMap  map[string]string
 	abbrMap   map[string][]Endpoint
 	redirects Redirects
+	cnames    map[string]string
 }
 
 func NewMirrorZDatabase() *MirrorZDatabase {
@@ -261,6 +262,18 @@ func NewMirrorZDatabase() *MirrorZDatabase {
 }
 
 func (m *MirrorZDatabase) Load(path string) (err error) {
+	content, err := os.ReadFile(filepath.Join(path, "cname.json"))
+	if err != nil {
+		return fmt.Errorf("read cname.json: %w", err)
+	}
+	var cnames map[string]string
+	if err := json.Unmarshal(content, &cnames); err != nil {
+		return fmt.Errorf("parse cname.json: %w", err)
+	}
+	if cnames == nil {
+		return fmt.Errorf("cname.json must be an object")
+	}
+	path = filepath.Join(path, "sites")
 	folders, err := os.ReadDir(path)
 	if err != nil {
 		err = fmt.Errorf("MirrorZDatabase.Load: os.ReadDir: %w", err)
@@ -362,6 +375,7 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 	m.labelMap = newLabelMap
 	m.abbrMap = newAbbrMap
 	m.redirects = globalRules
+	m.cnames = cnames
 	m.mu.Unlock()
 	return
 }

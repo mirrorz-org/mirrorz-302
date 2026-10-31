@@ -21,8 +21,11 @@ import (
 
 func writeSiteConfig(t *testing.T, dir, name, content string) {
 	t.Helper()
-	siteDir := filepath.Join(dir, name)
-	require.NoError(t, os.Mkdir(siteDir, 0o700))
+	siteDir := filepath.Join(dir, "sites", name)
+	require.NoError(t, os.MkdirAll(siteDir, 0o700))
+	if _, err := os.Stat(filepath.Join(dir, "cname.json")); os.IsNotExist(err) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "cname.json"), []byte(`{}`), 0o600))
+	}
 	require.NoError(t, os.WriteFile(filepath.Join(siteDir, "config.json"), []byte(content), 0o600))
 }
 
@@ -273,10 +276,10 @@ func TestResolveRepoFromInfluxWithStaticSiteConfig(t *testing.T) {
 	writeSiteConfig(t, dir, "tuna", config)
 
 	s := NewServer(Config{
-		InfluxDB:          influxdb.Config{URL: influx.URL, Database: "mirrorz"},
-		MirrorZDDirectory: dir,
-		DomainLength:      5,
-		CacheTime:         300,
+		InfluxDB:               influxdb.Config{URL: influx.URL, Database: "mirrorz"},
+		MirrorZConfigDirectory: dir,
+		DomainLength:           5,
+		CacheTime:              300,
 	})
 	require.NoError(t, s.LoadMirrorZD())
 
@@ -296,7 +299,7 @@ func TestScoringAPIIncludesEveryConfiguredAbbr(t *testing.T) {
 	config := `{"abbrs":["TUNA.NANO","TUNA.NEO"],"endpoints":[{"label":"tuna","resolve":"mirrors.tuna.tsinghua.edu.cn","public":true,"filter":["V4","V6","SSL","NOSSL"]}]}`
 	writeSiteConfig(t, dir, "tuna", config)
 
-	s := NewServer(Config{MirrorZDDirectory: dir, DomainLength: 5})
+	s := NewServer(Config{MirrorZConfigDirectory: dir, DomainLength: 5})
 	require.NoError(t, s.LoadMirrorZD())
 	r := httptest.NewRequest(http.MethodGet, "https://mirrors.cernet.edu.cn/api/scoring", nil)
 	r.Header.Set("X-Forwarded-Proto", "https")
@@ -325,10 +328,10 @@ func TestTraceBypassesFreshCache(t *testing.T) {
 	writeSiteConfig(t, dir, "tuna", config)
 
 	s := NewServer(Config{
-		InfluxDB:          influxdb.Config{URL: influx.URL, Database: "mirrorz"},
-		MirrorZDDirectory: dir,
-		DomainLength:      5,
-		CacheTime:         300,
+		InfluxDB:               influxdb.Config{URL: influx.URL, Database: "mirrorz"},
+		MirrorZConfigDirectory: dir,
+		DomainLength:           5,
+		CacheTime:              300,
 	})
 	require.NoError(t, s.LoadMirrorZD())
 
@@ -407,7 +410,7 @@ func TestRepositoryRestrictionsReloadClearsCachedResults(t *testing.T) {
 				return w.Body.String()
 			}
 			assert.Contains(t, request(), "near.example.com")
-			configPath := filepath.Join(s.mirrorzdDir, "tuna", "config.json")
+			configPath := filepath.Join(s.mirrorzdDir, "sites", "tuna", "config.json")
 			original, err := os.ReadFile(configPath)
 			require.NoError(t, err)
 			var config map[string]any

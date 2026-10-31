@@ -26,15 +26,15 @@ import (
 )
 
 type Config struct {
-	InfluxDB          influxdb.Config `json:"influxdb"`
-	IPDBFile          string          `json:"ipdb-file"`
-	HTTPBindAddress   string          `json:"http-bind-address"`
-	MirrorZDDirectory string          `json:"mirrorz-d-directory"`
-	Homepage          string          `json:"homepage"`
-	DomainLength      int             `json:"domain-length"`
-	CacheTime         int             `json:"cache-time"`
-	MaxRepoStaleness  int             `json:"max-repo-staleness"`
-	LogDirectory      string          `json:"log-directory"`
+	InfluxDB               influxdb.Config `json:"influxdb"`
+	IPDBFile               string          `json:"ipdb-file"`
+	HTTPBindAddress        string          `json:"http-bind-address"`
+	MirrorZConfigDirectory string          `json:"mirrorz-config-directory"`
+	Homepage               string          `json:"homepage"`
+	DomainLength           int             `json:"domain-length"`
+	CacheTime              int             `json:"cache-time"`
+	MaxRepoStaleness       int             `json:"max-repo-staleness"`
+	LogDirectory           string          `json:"log-directory"`
 }
 
 const DefaultMaxRepoStaleness = 48 * 60 * 60
@@ -77,7 +77,7 @@ func NewServer(config Config) *Server {
 		},
 
 		logDir:      config.LogDirectory,
-		mirrorzdDir: config.MirrorZDDirectory,
+		mirrorzdDir: config.MirrorZConfigDirectory,
 
 		resolveLogger: logging.GetLogger("resolve"),
 		failLogger:    logging.GetLogger("fail"),

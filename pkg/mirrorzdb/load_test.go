@@ -22,8 +22,11 @@ const tunaSite = `{
 
 func writeConfig(t *testing.T, dir, name, content string) {
 	t.Helper()
-	siteDir := filepath.Join(dir, name)
-	require.NoError(t, os.Mkdir(siteDir, 0o700))
+	siteDir := filepath.Join(dir, "sites", name)
+	require.NoError(t, os.MkdirAll(siteDir, 0o700))
+	if _, err := os.Stat(filepath.Join(dir, "cname.json")); os.IsNotExist(err) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "cname.json"), []byte(`{}`), 0o600))
+	}
 	require.NoError(t, os.WriteFile(filepath.Join(siteDir, "config.json"), []byte(content), 0o600))
 }
 
@@ -78,11 +81,17 @@ func TestLoadRejectsDuplicateAbbr(t *testing.T) {
 func TestFailedReloadKeepsPreviousDatabase(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, "tuna", tunaSite)
+	cnamePath := filepath.Join(dir, "cname.json")
+	require.NoError(t, os.WriteFile(cnamePath, []byte(`{"Alias":"repo"}`), 0600))
 
 	db := NewMirrorZDatabase()
 	require.NoError(t, db.Load(dir))
+	require.NoError(t, os.WriteFile(cnamePath, []byte(`{"Alias":"changed"}`), 0600))
 	writeConfig(t, dir, "broken", `{`)
 	require.Error(t, db.Load(dir))
+	path, err := db.Normalize("/Alias/file")
+	require.NoError(t, err)
+	assert.Equal(t, "/repo/file", path)
 
 	endpoints, ok := db.Lookup("TUNA.NANO")
 	assert.True(t, ok)
@@ -91,8 +100,10 @@ func TestFailedReloadKeepsPreviousDatabase(t *testing.T) {
 
 func TestLoadRejectsDirectoryWithoutSiteConfigs(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "legacy.json"), []byte(tunaSite), 0o600))
-	require.NoError(t, os.Mkdir(filepath.Join(dir, "missing-config"), 0o700))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "sites"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "cname.json"), []byte(`{}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sites", "legacy.json"), []byte(tunaSite), 0o600))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "sites", "missing-config"), 0o700))
 
 	assert.ErrorContains(t, NewMirrorZDatabase().Load(dir), "no site configurations found")
 }

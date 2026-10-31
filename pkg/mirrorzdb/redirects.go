@@ -212,7 +212,17 @@ func (m *MirrorZDatabase) Normalize(path string) (string, error) {
 		return "", err
 	}
 	m.mu.RLock()
-	rules := m.redirects
+	rules, cnames := m.redirects, m.cnames
 	m.mu.RUnlock()
-	return rules.Apply(path)
+	path, err := rules.Apply(path)
+	if err != nil {
+		return "", err
+	}
+	parts := strings.SplitN(strings.TrimPrefix(path, "/"), "/", 2)
+	cname, _ := url.PathUnescape(parts[0])
+	if target, ok := cnames[cname]; ok {
+		parts[0] = target
+		path = "/" + strings.Join(parts, "/")
+	}
+	return path, nil
 }

@@ -38,10 +38,10 @@ func newMirrorlistTestServer(t *testing.T, cacheTime int, influxHandler http.Han
 	writeSiteConfig(t, dir, "ustc", ustc)
 
 	s := NewServer(Config{
-		InfluxDB:          influxdb.Config{URL: influx.URL, Database: "mirrorz"},
-		MirrorZDDirectory: dir,
-		DomainLength:      5,
-		CacheTime:         cacheTime,
+		InfluxDB:               influxdb.Config{URL: influx.URL, Database: "mirrorz"},
+		MirrorZConfigDirectory: dir,
+		DomainLength:           5,
+		CacheTime:              cacheTime,
 	})
 	require.NoError(t, s.LoadMirrorZD())
 	return s, influx.Close
@@ -378,7 +378,7 @@ func TestOfficialIndexNormalizationAndDeduplication(t *testing.T) {
 		_, _ = w.Write([]byte(response))
 	}))
 	defer closeServer()
-	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "redirects.json"), []byte(`{
+	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "sites", "redirects.json"), []byte(`{
 		"redirects":[{"match":"^/alias$","target":"/ubuntu"}]
 	}`), 0600))
 	require.NoError(t, s.LoadMirrorZD())
