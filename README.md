@@ -163,8 +163,8 @@ and cache. Restart once after changing `mirrorz-config-directory` in the main YA
 
 ### Path rewrites and availability
 
-Put global rules in `sites/redirects.json` relative to `mirrorz-config-directory`
-(normally `mirrorz-config/sites/redirects.json`). They match the complete
+Put global rules in `sites/global.json` relative to `mirrorz-config-directory`
+(normally `mirrorz-config/sites/global.json`). They match the complete
 request path before the cname is selected:
 
 ```json
@@ -234,7 +234,7 @@ and client preferences; each request applies its own path rules and scoring.
 `?trace=1` shows canonical paths, path exclusions, and the final target.
 
 The deployed configuration belongs in mirrorz-config: global rules in
-`sites/redirects.json` and site rules in `sites/<site>/config.json`.
+`sites/global.json` and site rules in `sites/<site>/config.json`.
 The OpenWrt blacklist above illustrates a historical missing release, not a
 current recommendation to exclude that release.
 
@@ -284,6 +284,36 @@ Components: main
 The APT response assigns `priority:1` to the highest-scoring URL and increasing
 priority numbers to the remaining fallback URLs.
 
+Global mirrorlist configs are configured in `sites/global.json`, alongside
+`redirects`. Keys are canonical repository names; both fields are optional:
+
+```json
+{
+  "mirrorlist_path": {
+    "ubuntu": {
+      "official_url": "security.ubuntu.com/ubuntu/"
+    },
+    "ubuntu-ports": {
+      "official_url": "ports.ubuntu.com/ubuntu-ports/"
+    },
+    "debian-security": {
+      "official_url": "security.debian.org/debian-security/"
+    },
+    "anthon": {
+      "path": "/anthon/debs"
+    }
+  }
+}
+```
+
+`path` overrides the repository root appended to the mirror endpoint. A site's
+`mirrorlist_paths` entry takes precedence over the global `path`; when neither
+is configured, the path keeps default. Site configuration retains the
+string-map format: `"mirrorlist_paths": {"anthon": "/anthon/debs"}`.
+
+`official_url` contains a host and optional repository path without a scheme.
+It is used only for APT requests with `official_index=1`;
+
 For Debian security and Ubuntu security updates, add `?official_index=1` to
 prefer official indexes while downloading packages from scored mirrors:
 
@@ -314,14 +344,12 @@ Components: main restricted universe multiverse
 
 Keep Ubuntu security in a separate source entry. Regular, updates, and backports
 suites should continue using the URL without this parameter; the server does not
-inspect the suites configured in APT. This mode supports `debian-security`,
-`ubuntu`, and `ubuntu-ports`. An unsupported repository
-with `official_index=1` returns HTTP 400. Other parameter values leave the list
+inspect the suites configured in APT. A repository without a configured
+`official_url` returns HTTP 400 when requested with `official_index=1`.
+Other parameter values leave the list
 unchanged.
 
-The list starts with the corresponding official URL:
-`https://security.debian.org/debian-security/`,
-`https://security.ubuntu.com/ubuntu/`, or `https://ports.ubuntu.com/ubuntu-ports/`,
+The list starts with the configured official URL,
 tagged `priority:0 type:index`, followed by
 the eligible mirrors with priorities starting at 1. The official URL appears
 again after all mirrors as the final fallback without a type restriction.

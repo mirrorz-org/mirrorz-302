@@ -46,15 +46,6 @@ func (r *Redirects) UnmarshalJSON(data []byte) error {
 	return decodeRedirectConfig(data, (*plain)(r))
 }
 
-type globalRedirects struct {
-	Redirects []Rewrite `json:"redirects"`
-}
-
-func (g *globalRedirects) UnmarshalJSON(data []byte) error {
-	type plain globalRedirects
-	return decodeRedirectConfig(data, (*plain)(g))
-}
-
 // ValidatePath checks an escaped, repository-relative or site-relative path.
 // Decode only for validation: the original spelling is retained for matching
 // and output, including encoded slashes and percent signs.
