@@ -57,7 +57,7 @@ func TestTwoStageRedirectAndSharedSourceCache(t *testing.T) {
 		}},
 		"mirrorlist_paths": map[string]string{"repo": "/repo/debian"},
 	})
-	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "sites", "redirects.json"), []byte(`{
+	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "sites", "global.json"), []byte(`{
 		"redirects":[{"match":"^/alias(?:/debian)?(/.*)?$","target":"/Alias${1}"}]
 	}`), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "cname.json"), []byte(`{"Alias":"repo"}`), 0600))
@@ -159,7 +159,7 @@ func TestRedirectReloadAndInvalidRequests(t *testing.T) {
 		_, _ = w.Write([]byte(mirrorlistInfluxResponse))
 	}))
 	defer closeServer()
-	global := filepath.Join(s.mirrorzdDir, "sites", "redirects.json")
+	global := filepath.Join(s.mirrorzdDir, "sites", "global.json")
 	for _, target := range []string{"/repo/one", "/repo/two"} {
 		data, _ := json.Marshal(map[string]any{"redirects": []map[string]string{{"match": "^/alias$", "target": target}}})
 		require.NoError(t, os.WriteFile(global, data, 0600))

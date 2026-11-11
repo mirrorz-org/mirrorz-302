@@ -56,7 +56,7 @@ func (s *Server) queryInflux(ctx context.Context, cname string) (res influxdb.Re
 // ErrInvalidPath identifies malformed requests or invalid global rewrite output.
 var ErrInvalidPath = errors.New("invalid repository path")
 var errMirrorlistNotFound = errors.New("invalid mirrorlist repository")
-var errOfficialIndexUnsupported = errors.New("official_index is only supported for debian-security, ubuntu and ubuntu-ports")
+var errOfficialIndexUnsupported = errors.New("official URL is not configured for this repository")
 
 // normalizeMeta must run under configMu, together with site rule evaluation.
 func (s *Server) normalizeMeta(ctx context.Context, meta requestmeta.RequestMeta) (requestmeta.RequestMeta, error) {
@@ -206,17 +206,12 @@ func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.Request
 	if !ok {
 		return list, ErrInvalidPath
 	}
+	global := s.mirrorzd.Mirrorlist(meta.CName)
 	if apt && officialIndex {
-		switch meta.CName {
-		case "debian-security":
-			list.OfficialURL = "https://security.debian.org/debian-security/"
-		case "ubuntu":
-			list.OfficialURL = "https://security.ubuntu.com/ubuntu/"
-		case "ubuntu-ports":
-			list.OfficialURL = "https://ports.ubuntu.com/ubuntu-ports/"
-		default:
+		if global.OfficialURL == "" {
 			return list, errOfficialIndexUnsupported
 		}
+		list.OfficialURL = meta.Scheme + "://" + strings.TrimRight(global.OfficialURL, "/") + "/"
 	}
 	res, err := s.monitorResults(ctx, meta)
 	if err != nil {
@@ -238,6 +233,8 @@ func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.Request
 			path, declared := endpoint.MirrorlistPaths[meta.CName]
 			if declared {
 				score.Repo = path
+			} else if global.Path != "" {
+				score.Repo = global.Path
 			}
 			candidates = append(candidates, score)
 			break

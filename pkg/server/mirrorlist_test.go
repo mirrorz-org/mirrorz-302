@@ -36,6 +36,7 @@ func newMirrorlistTestServer(t *testing.T, cacheTime int, influxHandler http.Han
 ]}`
 	writeSiteConfig(t, dir, "tuna", tuna)
 	writeSiteConfig(t, dir, "ustc", ustc)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sites", "global.json"), []byte(`{"mirrorlist":{"ubuntu":{"official_url":"security.ubuntu.com/ubuntu/"},"ubuntu-ports":{"official_url":"ports.ubuntu.com/ubuntu-ports/"},"debian-security":{"official_url":"security.debian.org/debian-security/"}}}`), 0600))
 
 	s := NewServer(Config{
 		InfluxDB:               influxdb.Config{URL: influx.URL, Database: "mirrorz"},
@@ -378,7 +379,8 @@ func TestOfficialIndexNormalizationAndDeduplication(t *testing.T) {
 		_, _ = w.Write([]byte(response))
 	}))
 	defer closeServer()
-	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "sites", "redirects.json"), []byte(`{
+	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "sites", "global.json"), []byte(`{
+		"mirrorlist":{"ubuntu":{"official_url":"security.ubuntu.com/ubuntu/"}},
 		"redirects":[{"match":"^/alias$","target":"/ubuntu"}]
 	}`), 0600))
 	require.NoError(t, s.LoadMirrorZD())
@@ -408,4 +410,23 @@ func TestOfficialIndexValidation(t *testing.T) {
 		w := redirectGet(s, "/api/apt/mirrorlist/"+test.path+"?official_index=1")
 		assert.Equal(t, test.code, w.Code, test.path)
 	}
+}
+
+func TestMirrorlistGlobalOverrides(t *testing.T) {
+	s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(mirrorlistInfluxResponse))
+	}))
+	defer closeServer()
+	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "sites", "global.json"), []byte(`{"mirrorlist":{"repo":{"path":"/custom/debs","official_url":"official.example.com/repo/"}}}`), 0600))
+	require.NoError(t, s.LoadMirrorZD())
+	r := mirrorlistRequest(http.MethodGet, "/api/apt/mirrorlist/repo?official_index=1")
+	r.Header.Set("X-Forwarded-Proto", "http")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	require.Equal(t, 200, w.Code)
+	assert.Contains(t, w.Body.String(), "http://official.example.com/repo/\tpriority:0 type:index\n")
+	assert.Contains(t, w.Body.String(), "/custom/debs/\tpriority:1\n")
+	patchRedirectSite(t, s, "tuna", map[string]any{"mirrorlist_paths": map[string]string{"repo": "/site/debs"}})
+	assert.Contains(t, redirectGet(s, "/api/apt/mirrorlist/repo").Body.String(), "https://near.example.com/site/debs/")
 }

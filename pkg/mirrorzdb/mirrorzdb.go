@@ -239,6 +239,21 @@ func (e *Endpoint) MatchIPMask(ip net.IP) (longest int) {
 	return
 }
 
+type Mirrorlist struct {
+	Path        string `json:"path,omitempty"`
+	OfficialURL string `json:"official_url,omitempty"`
+}
+
+type globalConfig struct {
+	Redirects   []Rewrite             `json:"redirects"`
+	Mirrorlists map[string]Mirrorlist `json:"mirrorlist"`
+}
+
+func (g *globalConfig) UnmarshalJSON(data []byte) error {
+	type plain globalConfig
+	return decodeRedirectConfig(data, (*plain)(g))
+}
+
 type SiteFile struct {
 	Abbrs           []string             `json:"abbrs"`
 	Blacklist       []string             `json:"blacklist"`
@@ -249,12 +264,13 @@ type SiteFile struct {
 }
 
 type MirrorZDatabase struct {
-	mu        sync.RWMutex
-	abbrs     []string
-	labelMap  map[string]string
-	abbrMap   map[string][]Endpoint
-	redirects Redirects
-	cnames    map[string]string
+	mu          sync.RWMutex
+	abbrs       []string
+	labelMap    map[string]string
+	abbrMap     map[string][]Endpoint
+	redirects   Redirects
+	cnames      map[string]string
+	mirrorlists map[string]Mirrorlist
 }
 
 func NewMirrorZDatabase() *MirrorZDatabase {
@@ -286,19 +302,19 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 	newAbbrMap := make(map[string][]Endpoint)
 	// The global file is optional for existing installations. Parse it before
 	// committing any part of the new configuration snapshot.
-	var global globalRedirects
-	content, readErr := os.ReadFile(filepath.Join(path, "redirects.json"))
+	var global globalConfig
+	content, readErr := os.ReadFile(filepath.Join(path, "global.json"))
 	if readErr != nil && !os.IsNotExist(readErr) {
-		return fmt.Errorf("read redirects.json: %w", readErr)
+		return fmt.Errorf("read global.json: %w", readErr)
 	}
 	if readErr == nil {
 		if err := json.Unmarshal(content, &global); err != nil {
-			return fmt.Errorf("parse redirects.json: %w", err)
+			return fmt.Errorf("parse global.json: %w", err)
 		}
 	}
 	globalRules := Redirects{Rewrite: global.Redirects}
 	if err := globalRules.compile(); err != nil {
-		return fmt.Errorf("redirects.json: %w", err)
+		return fmt.Errorf("global.json: %w", err)
 	}
 
 	for _, site := range folders {
@@ -376,6 +392,7 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 	m.abbrMap = newAbbrMap
 	m.redirects = globalRules
 	m.cnames = cnames
+	m.mirrorlists = global.Mirrorlists
 	m.mu.Unlock()
 	return
 }
@@ -403,4 +420,11 @@ func (m *MirrorZDatabase) ResolveLabel(label string) (resolve string, ok bool) {
 	resolve, ok = m.labelMap[label]
 	m.mu.RUnlock()
 	return
+}
+
+// Mirrorlist returns the global repository overrides.
+func (m *MirrorZDatabase) Mirrorlist(cname string) Mirrorlist {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.mirrorlists[cname]
 }
