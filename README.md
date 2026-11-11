@@ -289,7 +289,7 @@ Global mirrorlist configs are configured in `sites/global.json`, alongside
 
 ```json
 {
-  "mirrorlist_path": {
+  "mirrorlist": {
     "ubuntu": {
       "official_url": "security.ubuntu.com/ubuntu/"
     },

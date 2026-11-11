@@ -239,14 +239,14 @@ func (e *Endpoint) MatchIPMask(ip net.IP) (longest int) {
 	return
 }
 
-type MirrorlistPath struct {
+type Mirrorlist struct {
 	Path        string `json:"path,omitempty"`
 	OfficialURL string `json:"official_url,omitempty"`
 }
 
 type globalConfig struct {
-	Redirects      []Rewrite                 `json:"redirects"`
-	MirrorlistPath map[string]MirrorlistPath `json:"mirrorlist_path"`
+	Redirects   []Rewrite             `json:"redirects"`
+	Mirrorlists map[string]Mirrorlist `json:"mirrorlist"`
 }
 
 func (g *globalConfig) UnmarshalJSON(data []byte) error {
@@ -264,13 +264,13 @@ type SiteFile struct {
 }
 
 type MirrorZDatabase struct {
-	mu             sync.RWMutex
-	abbrs          []string
-	labelMap       map[string]string
-	abbrMap        map[string][]Endpoint
-	redirects      Redirects
-	cnames         map[string]string
-	mirrorlistPath map[string]MirrorlistPath
+	mu          sync.RWMutex
+	abbrs       []string
+	labelMap    map[string]string
+	abbrMap     map[string][]Endpoint
+	redirects   Redirects
+	cnames      map[string]string
+	mirrorlists map[string]Mirrorlist
 }
 
 func NewMirrorZDatabase() *MirrorZDatabase {
@@ -392,7 +392,7 @@ func (m *MirrorZDatabase) Load(path string) (err error) {
 	m.abbrMap = newAbbrMap
 	m.redirects = globalRules
 	m.cnames = cnames
-	m.mirrorlistPath = global.MirrorlistPath
+	m.mirrorlists = global.Mirrorlists
 	m.mu.Unlock()
 	return
 }
@@ -422,9 +422,9 @@ func (m *MirrorZDatabase) ResolveLabel(label string) (resolve string, ok bool) {
 	return
 }
 
-// MirrorlistPath returns the global path overrides.
-func (m *MirrorZDatabase) MirrorlistPath(cname string) MirrorlistPath {
+// Mirrorlist returns the global repository overrides.
+func (m *MirrorZDatabase) Mirrorlist(cname string) Mirrorlist {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.mirrorlistPath[cname]
+	return m.mirrorlists[cname]
 }

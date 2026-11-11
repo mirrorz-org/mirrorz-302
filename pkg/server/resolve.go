@@ -206,7 +206,7 @@ func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.Request
 	if !ok {
 		return list, ErrInvalidPath
 	}
-	global := s.mirrorzd.MirrorlistPath(meta.CName)
+	global := s.mirrorzd.Mirrorlist(meta.CName)
 	if apt && officialIndex {
 		if global.OfficialURL == "" {
 			return list, errOfficialIndexUnsupported

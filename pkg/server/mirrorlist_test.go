@@ -36,7 +36,7 @@ func newMirrorlistTestServer(t *testing.T, cacheTime int, influxHandler http.Han
 ]}`
 	writeSiteConfig(t, dir, "tuna", tuna)
 	writeSiteConfig(t, dir, "ustc", ustc)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "sites", "global.json"), []byte(`{"mirrorlist_path":{"ubuntu":{"official_url":"security.ubuntu.com/ubuntu/"},"ubuntu-ports":{"official_url":"ports.ubuntu.com/ubuntu-ports/"},"debian-security":{"official_url":"security.debian.org/debian-security/"}}}`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sites", "global.json"), []byte(`{"mirrorlist":{"ubuntu":{"official_url":"security.ubuntu.com/ubuntu/"},"ubuntu-ports":{"official_url":"ports.ubuntu.com/ubuntu-ports/"},"debian-security":{"official_url":"security.debian.org/debian-security/"}}}`), 0600))
 
 	s := NewServer(Config{
 		InfluxDB:               influxdb.Config{URL: influx.URL, Database: "mirrorz"},
@@ -380,7 +380,7 @@ func TestOfficialIndexNormalizationAndDeduplication(t *testing.T) {
 	}))
 	defer closeServer()
 	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "sites", "global.json"), []byte(`{
-		"mirrorlist_path":{"ubuntu":{"official_url":"security.ubuntu.com/ubuntu/"}},
+		"mirrorlist":{"ubuntu":{"official_url":"security.ubuntu.com/ubuntu/"}},
 		"redirects":[{"match":"^/alias$","target":"/ubuntu"}]
 	}`), 0600))
 	require.NoError(t, s.LoadMirrorZD())
@@ -418,7 +418,7 @@ func TestMirrorlistGlobalOverrides(t *testing.T) {
 		_, _ = w.Write([]byte(mirrorlistInfluxResponse))
 	}))
 	defer closeServer()
-	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "sites", "global.json"), []byte(`{"mirrorlist_path":{"repo":{"path":"/custom/debs","official_url":"official.example.com/repo/"}}}`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(s.mirrorzdDir, "sites", "global.json"), []byte(`{"mirrorlist":{"repo":{"path":"/custom/debs","official_url":"official.example.com/repo/"}}}`), 0600))
 	require.NoError(t, s.LoadMirrorZD())
 	r := mirrorlistRequest(http.MethodGet, "/api/apt/mirrorlist/repo?official_index=1")
 	r.Header.Set("X-Forwarded-Proto", "http")
