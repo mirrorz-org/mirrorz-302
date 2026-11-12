@@ -166,7 +166,7 @@ func (s *Server) handleMirrorlist(w http.ResponseWriter, r *http.Request, apt bo
 		return
 	}
 	if len(list.URLs) == 0 {
-		http.NotFound(w, r)
+		http.Error(w, "No mirror sites are available for this repository", http.StatusNotFound)
 		return
 	}
 
@@ -266,8 +266,10 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		tracer.WriteTo(w)
 	} else if errors.Is(err, ErrInvalidPath) {
 		http.Error(w, "Invalid repository path", http.StatusBadRequest)
-	} else if url == "" || err != nil {
-		http.NotFound(w, r)
+	} else if err != nil {
+		http.Error(w, "Mirror information is temporarily unavailable", http.StatusServiceUnavailable)
+	} else if url == "" {
+		http.Error(w, "No mirror sites are available for this repository", http.StatusNotFound)
 	} else {
 		query := ""
 		if r.URL.RawQuery != "" {

@@ -229,16 +229,25 @@ func TestMirrorlistRequestValidation(t *testing.T) {
 	}
 }
 
-func TestMirrorlistNotFound(t *testing.T) {
+func TestRepositoryNotFound(t *testing.T) {
 	s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"results":[{}]}`))
 	}))
 	defer closeServer()
 
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, mirrorlistRequest(http.MethodGet, "/api/rpm/mirrorlist/missing"))
-	assert.Equal(t, http.StatusNotFound, w.Code)
+	for _, path := range []string{
+		"/missing",
+		"/api/apt/mirrorlist/missing",
+		"/api/rpm/mirrorlist/missing",
+	} {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, mirrorlistRequest(http.MethodGet, path))
+			assert.Equal(t, http.StatusNotFound, w.Code)
+			assert.Equal(t, "No mirror sites are available for this repository\n", w.Body.String())
+		})
+	}
 }
 
 func TestMirrorlistUsesStaleCacheOnInfluxFailure(t *testing.T) {
@@ -265,15 +274,20 @@ func TestMirrorlistUsesStaleCacheOnInfluxFailure(t *testing.T) {
 	assert.Equal(t, 2, queries)
 }
 
-func TestMirrorlistReturnsServiceUnavailableWithoutCache(t *testing.T) {
+func TestRepositoryReturnsServiceUnavailableWithoutCache(t *testing.T) {
 	s, closeServer := newMirrorlistTestServer(t, int(time.Minute/time.Second), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 	}))
 	defer closeServer()
 
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, mirrorlistRequest(http.MethodGet, "/api/apt/mirrorlist/repo"))
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	for _, path := range []string{"/repo", "/api/apt/mirrorlist/repo", "/api/rpm/mirrorlist/repo"} {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, mirrorlistRequest(http.MethodGet, path))
+			assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+			assert.Equal(t, "Mirror information is temporarily unavailable\n", w.Body.String())
+		})
+	}
 }
 
 func TestAPTMirrorlistOfficialIndex(t *testing.T) {
