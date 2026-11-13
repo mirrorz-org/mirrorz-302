@@ -22,6 +22,7 @@ type Score struct {
 	Unknown bool `json:"unknown"`
 
 	// payload
+	Site    string `json:"site"`
 	Abbr    string `json:"abbr"`
 	Label   string `json:"label"`
 	Resolve string `json:"resolve"`

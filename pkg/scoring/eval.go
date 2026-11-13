@@ -11,7 +11,7 @@ import (
 // Eval calculates the score for the endpoint with a given request.
 func Eval(e mirrorzdb.Endpoint, m requestmeta.RequestMeta) (score Score) {
 	for index, label := range m.Labels {
-		if label == e.Label {
+		if label == e.Label || label == e.Site {
 			score.Pos = index + 1
 			// Note: The last label takes precedence, so don't `break` here.
 		}
@@ -34,6 +34,7 @@ func Eval(e mirrorzdb.Endpoint, m requestmeta.RequestMeta) (score Score) {
 	if m.IP != nil {
 		score.Mask = e.MatchIPMask(m.IP)
 	}
+	score.Site = e.Site
 	score.Label = e.Label
 	score.Resolve = e.Resolve
 	return

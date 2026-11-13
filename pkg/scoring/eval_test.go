@@ -10,7 +10,7 @@ import (
 
 func TestEvalPrefer(t *testing.T) {
 	as := assert.New(t)
-	e := mirrorzdb.Endpoint{Label: "ustc"}
+	e := mirrorzdb.Endpoint{Label: "ustc6", Site: "USTC"}
 	meta := requestmeta.RequestMeta{Labels: []string{"tuna", "ustc", "4"}}
 	score := Eval(e, meta)
 	as.Equal(2, score.Pos)
