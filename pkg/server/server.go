@@ -281,7 +281,7 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, errNthOutOfRange) {
 		if params.Has("nth") {
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
+			w.WriteHeader(http.StatusUnprocessableEntity)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": errNthOutOfRange.Error()})
 			return
 		}

@@ -66,7 +66,7 @@ func TestNthRedirect(t *testing.T) {
 	assert.Contains(t, redirectGet(s, "/repo/file?trace=1&nth=1").Body.String(), "nth=1 site=TUNA")
 	for _, query := range []string{"?nth=3", "?nth=3&trace=1"} {
 		outOfRange := redirectGet(s, "/repo/file"+query)
-		assert.Equal(t, http.StatusNotFound, outOfRange.Code)
+		assert.Equal(t, http.StatusUnprocessableEntity, outOfRange.Code)
 		assert.Equal(t, "application/json", outOfRange.Header().Get("Content-Type"))
 		assert.JSONEq(t, `{"error":"nth out of range"}`, outOfRange.Body.String())
 	}
@@ -155,7 +155,7 @@ func TestPathFiltersDoNotPoisonOtherPathsOrMirrorlists(t *testing.T) {
 	}
 	// Both TUNA endpoints are excluded for this path, leaving only one eligible endpoint.
 	outOfRange := redirectGet(s, "/repo/dists/stretch/InRelease?nth=1")
-	assert.Equal(t, http.StatusNotFound, outOfRange.Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, outOfRange.Code)
 	assert.JSONEq(t, `{"error":"nth out of range"}`, outOfRange.Body.String())
 	request := mirrorlistRequest("GET", "/repo/dists/stretch/InRelease")
 	request.Header.Set("X-Forwarded-Host", "tunanear.mirrors.cernet.edu.cn")

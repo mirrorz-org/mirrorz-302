@@ -242,7 +242,7 @@ current recommendation to exclude that release.
 
 #### Endpoints for debugging
 
-* `?nth=N` selects from all eligible endpoints in score order without deduplication (default `0`; `1` selects the second). Invalid values return 400; out-of-range indices return 404 with `{"error":"nth out of range"}`. Only the first `nth` is consumed; redirects preserve the remaining query parameters.
+* `?nth=N` selects from all eligible endpoints in score order without deduplication (default `0`; `1` selects the second). Invalid values return 400; out-of-range indices return 422 with `{"error":"nth out of range"}`. Only the first `nth` is consumed; redirects preserve the remaining query parameters.
 
 * Add `?trace=1` to print available site score for selected repo:
 
