@@ -42,6 +42,46 @@ func redirectGet(s *Server, path string) *httptest.ResponseRecorder {
 	return w
 }
 
+func TestNthRedirect(t *testing.T) {
+	s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(mirrorlistInfluxResponse))
+	}))
+	defer closeServer()
+	for _, test := range []struct{ query, location string }{
+		{"?nth=0", "https://near.example.com/repo/file"},
+		{"?nth=0&x=%2f", "https://near.example.com/repo/file"},
+		{"?x=%2f&%6Eth=0", "https://near.example.com/repo/file"},
+		{"?z-nth=2", "https://near.example.com/repo/file"},
+		{"?nth=0&nth=1", "https://near.example.com/repo/file"},
+		{"?x=%2f&nth=1&x=abc", "https://generic.example.com/repo/file"},
+		{"?nth=2", "https://ustc.example.com/repo/file"},
+		{"", "https://near.example.com/repo/file"},
+	} {
+		w := redirectGet(s, "/repo/file"+test.query)
+		require.Equal(t, http.StatusFound, w.Code)
+		assert.Equal(t, test.location+test.query, w.Header().Get("Location"))
+	}
+	assert.Equal(t, "0", redirectGet(s, "/repo/file").Header().Get("X-MirrorZ-Nth"))
+	assert.Equal(t, "1", redirectGet(s, "/repo/file?nth=1").Header().Get("X-MirrorZ-Nth"))
+	assert.Contains(t, redirectGet(s, "/repo/file?trace=1&nth=1").Body.String(), "nth=1 site=TUNA")
+	outOfRange := redirectGet(s, "/repo/file?nth=3")
+	assert.Equal(t, http.StatusNotFound, outOfRange.Code)
+	for _, value := range []string{"", "-1", "abc"} {
+		assert.Equal(t, http.StatusBadRequest, redirectGet(s, "/repo/file?nth="+value).Code)
+	}
+}
+
+func TestNthKeepsRepeatedRepositoryURLs(t *testing.T) {
+	s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(strings.ReplaceAll(mirrorlistInfluxResponse, `"url":"/repo"`, `"url":"https://shared.example.com/repo"`)))
+	}))
+	defer closeServer()
+	assert.Equal(t, http.StatusFound, redirectGet(s, "/repo/file?nth=0").Code)
+	assert.Equal(t, http.StatusFound, redirectGet(s, "/repo/file?nth=2").Code)
+}
+
 func TestTwoStageRedirectAndSharedSourceCache(t *testing.T) {
 	var queries atomic.Int32
 	s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +148,8 @@ func TestPathFiltersDoNotPoisonOtherPathsOrMirrorlists(t *testing.T) {
 		require.Equal(t, 302, w.Code)
 		assert.Contains(t, w.Header().Get("Location"), test.host)
 	}
+	// Both TUNA endpoints are excluded for this path, leaving only one eligible endpoint.
+	assert.Equal(t, http.StatusNotFound, redirectGet(s, "/repo/dists/stretch/InRelease?nth=1").Code)
 	request := mirrorlistRequest("GET", "/repo/dists/stretch/InRelease")
 	request.Header.Set("X-Forwarded-Host", "tunanear.mirrors.cernet.edu.cn")
 	w := httptest.NewRecorder()
@@ -221,7 +263,7 @@ func TestRewritesKeepMonitorRootsAndEndpointBasePaths(t *testing.T) {
 			assert.Equal(t, test.expected+"/debian/file", w.Header().Get("Location"))
 			meta := s.meta.Parse(mirrorlistRequest("GET", "/repo/file"))
 			ctx := context.WithValue(context.Background(), tracing.Key, tracing.NewTracer(false))
-			target, err := s.Resolve(ctx, meta)
+			target, err := s.Resolve(ctx, meta, 0)
 			require.NoError(t, err)
 			assert.Equal(t, test.expected+"/debian/file", target)
 		})
@@ -239,7 +281,8 @@ func TestAllPathsExcludedDoesNotCacheRepositoryFailure(t *testing.T) {
 	for _, site := range []string{"tuna", "ustc"} {
 		patchRedirectSite(t, s, site, map[string]any{"redirects": map[string]any{"repo": map[string]any{"blacklist": []string{`^/old/`}}}})
 	}
-	assert.Equal(t, 404, redirectGet(s, "/repo/old/file").Code)
+	excluded := redirectGet(s, "/repo/old/file")
+	assert.Equal(t, http.StatusNotFound, excluded.Code)
 	assert.Equal(t, 302, redirectGet(s, "/repo/new/file").Code)
 	assert.EqualValues(t, 1, queries.Load())
 }

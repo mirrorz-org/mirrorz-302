@@ -103,7 +103,7 @@ func (s *Server) monitorResults(ctx context.Context, meta requestmeta.RequestMet
 
 // Resolve returns the complete target URL, excluding its query string.
 // Path-dependent selection uses cached monitor data, not cached redirect URLs.
-func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (string, error) {
+func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta, nth int) (string, error) {
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
 	meta.Mirrorlist = false
@@ -117,7 +117,10 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (str
 	}
 	tracer := ctx.Value(tracing.Key).(tracing.Tracer)
 	tracer.Printf("Labels: %v\nIP: %s %s %s\nScheme: %s\n", meta.Labels, meta.IP, meta.Region, meta.ISP, meta.Scheme)
-	for _, score := range s.resolveBest(ctx, res, meta, 0) {
+	tracer.Printf("Requested nth=%d\n", nth)
+	scores := s.resolveBest(ctx, res, meta, 0)
+	if nth >= 0 && nth < len(scores) {
+		score := scores[nth]
 		endpoints, _ := s.mirrorzd.Lookup(score.Abbr)
 		for _, endpoint := range endpoints {
 			if endpoint.Label != score.Label {
@@ -131,7 +134,7 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta) (str
 			if rule != "" {
 				tracer.Printf("Site rewrite on %s: %s\n", endpoint.Label, rule)
 			}
-			tracer.Printf("Path on %s: %s -> %s; target: %s\n", endpoint.Label, meta.Tail, tail, target)
+			tracer.Printf("nth=%d site=%s; Path on %s: %s -> %s; target: %s\n", nth, score.Abbr, endpoint.Label, meta.Tail, tail, target)
 			s.resolveLogger.Debugf("%s", tracer.String())
 			s.resolveLogger.Infof("R: %s %s %s\n", target, meta, score)
 			return target, nil

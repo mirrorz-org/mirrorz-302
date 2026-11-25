@@ -252,11 +252,21 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, traceEnabled := r.URL.Query()["trace"]
+	params := r.URL.Query()
+	nth := 0
+	if values, ok := params["nth"]; ok {
+		n, err := strconv.ParseUint(values[0], 10, strconv.IntSize-1)
+		if err != nil {
+			http.Error(w, "invalid nth query", http.StatusBadRequest)
+			return
+		}
+		nth = int(n)
+	}
+	_, traceEnabled := params["trace"]
 	tracer := tracing.NewTracer(traceEnabled)
 	ctx := context.WithValue(r.Context(), tracing.Key, tracer)
 	meta := s.meta.Parse(r)
-	url, err := s.Resolve(ctx, meta)
+	url, err := s.Resolve(ctx, meta, nth)
 	if err != nil {
 		tracer.Printf("error: %v\n", err)
 	}
@@ -275,6 +285,7 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		if r.URL.RawQuery != "" {
 			query = "?" + r.URL.RawQuery
 		}
+		w.Header().Set("X-MirrorZ-Nth", strconv.Itoa(nth))
 		http.Redirect(w, r, url+query, http.StatusFound)
 	}
 }
