@@ -50,25 +50,30 @@ func TestNthRedirect(t *testing.T) {
 	defer closeServer()
 	for _, test := range []struct{ query, location string }{
 		{"?nth=0", "https://near.example.com/repo/file"},
-		{"?nth=0&x=%2f", "https://near.example.com/repo/file"},
-		{"?x=%2f&%6Eth=0", "https://near.example.com/repo/file"},
-		{"?z-nth=2", "https://near.example.com/repo/file"},
-		{"?nth=0&nth=1", "https://near.example.com/repo/file"},
-		{"?x=%2f&nth=1&x=abc", "https://generic.example.com/repo/file"},
+		{"?nth=0&x=%2f", "https://near.example.com/repo/file?x=%2f"},
+		{"?x=%2f&%6Eth=0", "https://near.example.com/repo/file?x=%2f"},
+		{"?nth=0&nth=1", "https://near.example.com/repo/file?nth=1"},
+		{"?nth=1&nth=bad", "https://generic.example.com/repo/file?nth=bad"},
+		{"?x=%2f&nth=1&x=abc", "https://generic.example.com/repo/file?x=%2f&x=abc"},
 		{"?nth=2", "https://ustc.example.com/repo/file"},
 		{"", "https://near.example.com/repo/file"},
 	} {
 		w := redirectGet(s, "/repo/file"+test.query)
 		require.Equal(t, http.StatusFound, w.Code)
-		assert.Equal(t, test.location+test.query, w.Header().Get("Location"))
+		assert.Equal(t, test.location, w.Header().Get("Location"))
+		assert.NotContains(t, w.Header(), http.CanonicalHeaderKey("X-MirrorZ-Nth"))
 	}
-	assert.Equal(t, "0", redirectGet(s, "/repo/file").Header().Get("X-MirrorZ-Nth"))
-	assert.Equal(t, "1", redirectGet(s, "/repo/file?nth=1").Header().Get("X-MirrorZ-Nth"))
 	assert.Contains(t, redirectGet(s, "/repo/file?trace=1&nth=1").Body.String(), "nth=1 site=TUNA")
-	outOfRange := redirectGet(s, "/repo/file?nth=3")
-	assert.Equal(t, http.StatusNotFound, outOfRange.Code)
-	for _, value := range []string{"", "-1", "abc"} {
-		assert.Equal(t, http.StatusBadRequest, redirectGet(s, "/repo/file?nth="+value).Code)
+	for _, query := range []string{"?nth=3", "?nth=3&trace=1"} {
+		outOfRange := redirectGet(s, "/repo/file"+query)
+		assert.Equal(t, http.StatusNotFound, outOfRange.Code)
+		assert.Equal(t, "application/json", outOfRange.Header().Get("Content-Type"))
+		assert.JSONEq(t, `{"error":"nth out of range"}`, outOfRange.Body.String())
+	}
+	for _, value := range []string{"", "-1", "abc", "bad&nth=1"} {
+		invalid := redirectGet(s, "/repo/file?nth="+value)
+		assert.Equal(t, http.StatusBadRequest, invalid.Code)
+		assert.Equal(t, "text/plain; charset=utf-8", invalid.Header().Get("Content-Type"))
 	}
 }
 
@@ -149,7 +154,9 @@ func TestPathFiltersDoNotPoisonOtherPathsOrMirrorlists(t *testing.T) {
 		assert.Contains(t, w.Header().Get("Location"), test.host)
 	}
 	// Both TUNA endpoints are excluded for this path, leaving only one eligible endpoint.
-	assert.Equal(t, http.StatusNotFound, redirectGet(s, "/repo/dists/stretch/InRelease?nth=1").Code)
+	outOfRange := redirectGet(s, "/repo/dists/stretch/InRelease?nth=1")
+	assert.Equal(t, http.StatusNotFound, outOfRange.Code)
+	assert.JSONEq(t, `{"error":"nth out of range"}`, outOfRange.Body.String())
 	request := mirrorlistRequest("GET", "/repo/dists/stretch/InRelease")
 	request.Header.Set("X-Forwarded-Host", "tunanear.mirrors.cernet.edu.cn")
 	w := httptest.NewRecorder()

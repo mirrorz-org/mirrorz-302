@@ -57,6 +57,7 @@ func (s *Server) queryInflux(ctx context.Context, cname string) (res influxdb.Re
 var ErrInvalidPath = errors.New("invalid repository path")
 var errMirrorlistNotFound = errors.New("invalid mirrorlist repository")
 var errOfficialIndexUnsupported = errors.New("official URL is not configured for this repository")
+var errNthOutOfRange = errors.New("nth out of range")
 
 // normalizeMeta must run under configMu, together with site rule evaluation.
 func (s *Server) normalizeMeta(ctx context.Context, meta requestmeta.RequestMeta) (requestmeta.RequestMeta, error) {
@@ -139,6 +140,8 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta, nth 
 			s.resolveLogger.Infof("R: %s %s %s\n", target, meta, score)
 			return target, nil
 		}
+	} else {
+		return "", errNthOutOfRange
 	}
 	s.failLogger.Debugf("%s", tracer.String())
 	s.failLogger.Infof("F: %s\n", meta)

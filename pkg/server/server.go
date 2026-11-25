@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -253,20 +254,40 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	params := r.URL.Query()
+	rawQuery := r.URL.RawQuery
 	nth := 0
-	if values, ok := params["nth"]; ok {
-		n, err := strconv.ParseUint(values[0], 10, strconv.IntSize-1)
+	if params.Has("nth") {
+		n, err := strconv.ParseUint(params.Get("nth"), 10, strconv.IntSize-1)
 		if err != nil {
 			http.Error(w, "invalid nth query", http.StatusBadRequest)
 			return
 		}
 		nth = int(n)
+		// Consume only the first nth, leaving the remaining parameters unchanged.
+		parts := strings.Split(rawQuery, "&")
+		for i, part := range parts {
+			key, _, _ := strings.Cut(part, "=")
+			if key, _ := url.QueryUnescape(key); key == "nth" {
+				rawQuery = strings.Join(slices.Delete(parts, i, i+1), "&")
+				break
+			}
+		}
 	}
 	_, traceEnabled := params["trace"]
 	tracer := tracing.NewTracer(traceEnabled)
 	ctx := context.WithValue(r.Context(), tracing.Key, tracer)
 	meta := s.meta.Parse(r)
 	url, err := s.Resolve(ctx, meta, nth)
+	if errors.Is(err, errNthOutOfRange) {
+		if params.Has("nth") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": errNthOutOfRange.Error()})
+			return
+		}
+		// No candidate for the default selection: use the normal empty-target response.
+		err = nil
+	}
 	if err != nil {
 		tracer.Printf("error: %v\n", err)
 	}
@@ -281,12 +302,10 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	} else if url == "" {
 		http.Error(w, "No mirror sites are available for this repository", http.StatusNotFound)
 	} else {
-		query := ""
-		if r.URL.RawQuery != "" {
-			query = "?" + r.URL.RawQuery
+		if rawQuery != "" {
+			url += "?" + rawQuery
 		}
-		w.Header().Set("X-MirrorZ-Nth", strconv.Itoa(nth))
-		http.Redirect(w, r, url+query, http.StatusFound)
+		http.Redirect(w, r, url, http.StatusFound)
 	}
 }
 
