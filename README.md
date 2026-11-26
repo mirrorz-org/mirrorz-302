@@ -240,6 +240,10 @@ current recommendation to exclude that release.
 
 ### Note
 
+#### ：Select an endpoint by score rank
+
+* `?nth=N` selects from all eligible endpoints in score order (default `0`). Invalid values return 400; out-of-range indices return 422 with `{"error":"nth out of range"}`.
+
 #### Endpoints for debugging
 
 * Add `?trace=1` to print available site score for selected repo:
