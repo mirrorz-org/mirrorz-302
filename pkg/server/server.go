@@ -282,7 +282,7 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		if params.Has("nth") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnprocessableEntity)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": errNthOutOfRange.Error()})
+			fmt.Fprintln(w, `{"error":"nth out of range"}`)
 			return
 		}
 		// No candidate for the default selection: use the normal empty-target response.
