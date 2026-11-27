@@ -242,7 +242,9 @@ current recommendation to exclude that release.
 
 #### ：Select an endpoint by score rank
 
-* `?nth=N` selects from all eligible endpoints in score order (default `0`). Invalid values return 400; out-of-range indices return 422 with `{"error":"nth out of range"}`.
+* `?nth=N` selects from all eligible endpoints in score order (default `0`). Invalid values return 400. If index `0` has no eligible endpoint, the response is 404; other out-of-range indices return 422.
+
+HTTP error responses are plain text by default. Send `Accept: application/json` to receive a JSON object with an `error` field, for example `{"error":"nth out of range"}`.
 
 #### Endpoints for debugging
 

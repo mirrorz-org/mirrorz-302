@@ -55,9 +55,9 @@ func (s *Server) queryInflux(ctx context.Context, cname string) (res influxdb.Re
 
 // ErrInvalidPath identifies malformed requests or invalid global rewrite output.
 var ErrInvalidPath = errors.New("invalid repository path")
-var errMirrorlistNotFound = errors.New("invalid mirrorlist repository")
-var errOfficialIndexUnsupported = errors.New("official URL is not configured for this repository")
-var errNthOutOfRange = errors.New("nth out of range")
+var ErrMirrorlistNotFound = errors.New("invalid mirrorlist repository")
+var ErrOfficialIndexUnsupported = errors.New("official URL is not configured for this repository")
+var ErrNthOutOfRange = errors.New("nth out of range")
 
 // normalizeMeta must run under configMu, together with site rule evaluation.
 func (s *Server) normalizeMeta(ctx context.Context, meta requestmeta.RequestMeta) (requestmeta.RequestMeta, error) {
@@ -141,7 +141,7 @@ func (s *Server) Resolve(ctx context.Context, meta requestmeta.RequestMeta, nth 
 			return target, nil
 		}
 	} else {
-		return "", errNthOutOfRange
+		return "", ErrNthOutOfRange
 	}
 	s.failLogger.Debugf("%s", tracer.String())
 	s.failLogger.Infof("F: %s\n", meta)
@@ -194,7 +194,7 @@ func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.Request
 	s.configMu.RLock()
 	defer s.configMu.RUnlock()
 	if meta.CName == "" {
-		return list, errMirrorlistNotFound
+		return list, ErrMirrorlistNotFound
 	}
 	meta.Mirrorlist = true
 	meta, err = s.normalizeMeta(ctx, meta)
@@ -202,7 +202,7 @@ func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.Request
 		return list, err
 	}
 	if apt && meta.Tail != "" {
-		return list, errMirrorlistNotFound
+		return list, ErrMirrorlistNotFound
 	}
 	decodedTail, err := url.PathUnescape(meta.Tail)
 	if err != nil {
@@ -215,7 +215,7 @@ func (s *Server) resolveMirrorlist(ctx context.Context, meta requestmeta.Request
 	global := s.mirrorzd.Mirrorlist(meta.CName)
 	if apt && officialIndex {
 		if global.OfficialURL == "" {
-			return list, errOfficialIndexUnsupported
+			return list, ErrOfficialIndexUnsupported
 		}
 		list.OfficialURL = meta.Scheme + "://" + strings.TrimRight(global.OfficialURL, "/") + "/"
 	}

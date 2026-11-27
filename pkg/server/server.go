@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -126,6 +127,9 @@ func (s *Server) buildHandlers() {
 	rpmMirrorlistPrefix := ApiPrefix + "rpm/mirrorlist/"
 	apiMux.Handle(rpmMirrorlistPrefix, http.StripPrefix(rpmMirrorlistPrefix,
 		http.HandlerFunc(s.handleRPMMirrorlist)))
+	apiMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, r, http.StatusNotFound, "404 page not found")
+	})
 	s.apiHandler = apiMux
 
 	mainMux := http.NewServeMux()
@@ -145,7 +149,7 @@ func (s *Server) handleRPMMirrorlist(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleMirrorlist(w http.ResponseWriter, r *http.Request, apt bool) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, fmt.Sprintf("Method %s is not supported", r.Method), http.StatusMethodNotAllowed)
+		writeError(w, r, http.StatusMethodNotAllowed, fmt.Sprintf("Method %s is not supported", r.Method))
 		return
 	}
 
@@ -155,19 +159,19 @@ func (s *Server) handleMirrorlist(w http.ResponseWriter, r *http.Request, apt bo
 	list, err := s.resolveMirrorlist(ctx, meta, apt, officialIndex)
 	if err != nil {
 		switch {
-		case errors.Is(err, errOfficialIndexUnsupported):
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, ErrOfficialIndexUnsupported):
+			writeError(w, r, http.StatusBadRequest, err.Error())
 		case errors.Is(err, ErrInvalidPath):
-			http.Error(w, "Invalid repository path", http.StatusBadRequest)
-		case errors.Is(err, errMirrorlistNotFound):
-			http.NotFound(w, r)
+			writeError(w, r, http.StatusBadRequest, "Invalid repository path")
+		case errors.Is(err, ErrMirrorlistNotFound):
+			writeError(w, r, http.StatusNotFound, "404 page not found")
 		default:
-			http.Error(w, "Mirror information is temporarily unavailable", http.StatusServiceUnavailable)
+			writeError(w, r, http.StatusServiceUnavailable, "Mirror information is temporarily unavailable")
 		}
 		return
 	}
 	if len(list.URLs) == 0 {
-		http.Error(w, "No mirror sites are available for this repository", http.StatusNotFound)
+		writeError(w, r, http.StatusNotFound, "No mirror sites are available for this repository")
 		return
 	}
 
@@ -237,73 +241,88 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.ServeHTTP(w, r)
 }
 
+func (s *Server) redirectRoot(w http.ResponseWriter, r *http.Request) {
+	host := s.homepage
+	labels := s.meta.Labels(r)
+	if len(labels) != 0 {
+		if resolved, ok := s.mirrorzd.ResolveLabel(labels[len(labels)-1]); ok {
+			host = resolved
+		}
+	}
+	http.Redirect(w, r, fmt.Sprintf("%s://%s", s.meta.Scheme(r), host), http.StatusFound)
+}
+
+type redirectQuery struct {
+	nth          int
+	rawQuery     string
+	traceEnabled bool
+}
+
+func parseRedirectQuery(u *url.URL) (redirectQuery, error) {
+	query := redirectQuery{rawQuery: u.RawQuery}
+	parts := strings.Split(u.RawQuery, "&")
+	nthIndex := -1
+	for i, part := range parts {
+		params, err := url.ParseQuery(part)
+		if err != nil {
+			continue
+		}
+		query.traceEnabled = query.traceEnabled || params.Has("trace")
+		if nthIndex == -1 && params.Has("nth") {
+			n, err := strconv.ParseUint(params.Get("nth"), 10, strconv.IntSize-1)
+			if err != nil {
+				return redirectQuery{}, err
+			}
+			query.nth, nthIndex = int(n), i
+		}
+	}
+	if nthIndex != -1 {
+		// Remove the consumed pair without re-encoding the rest.
+		query.rawQuery = strings.Join(slices.Delete(parts, nthIndex, nthIndex+1), "&")
+	}
+	return query, nil
+}
+
 // handleRedirect handles a regular mirrorz-302 request.
 func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
-		labels := s.meta.Labels(r)
-		scheme := s.meta.Scheme(r)
-		if len(labels) != 0 {
-			resolve, ok := s.mirrorzd.ResolveLabel(labels[len(labels)-1])
-			if ok {
-				http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, resolve), http.StatusFound)
-				return
-			}
-		}
-		http.Redirect(w, r, fmt.Sprintf("%s://%s", scheme, s.homepage), http.StatusFound)
+		s.redirectRoot(w, r)
 		return
 	}
 
-	params := r.URL.Query()
-	rawQuery := r.URL.RawQuery
-	nth := 0
-	if params.Has("nth") {
-		n, err := strconv.ParseUint(params.Get("nth"), 10, strconv.IntSize-1)
-		if err != nil {
-			http.Error(w, "invalid nth query", http.StatusBadRequest)
-			return
-		}
-		nth = int(n)
-		// Consume only the first nth, leaving the remaining parameters unchanged.
-		parts := strings.Split(rawQuery, "&")
-		for i, part := range parts {
-			key, _, _ := strings.Cut(part, "=")
-			if key, _ := url.QueryUnescape(key); key == "nth" {
-				rawQuery = strings.Join(slices.Delete(parts, i, i+1), "&")
-				break
-			}
-		}
+	query, err := parseRedirectQuery(r.URL)
+	if err != nil {
+		writeError(w, r, http.StatusBadRequest, "invalid nth query")
+		return
 	}
-	_, traceEnabled := params["trace"]
-	tracer := tracing.NewTracer(traceEnabled)
+	tracer := tracing.NewTracer(query.traceEnabled)
 	ctx := context.WithValue(r.Context(), tracing.Key, tracer)
 	meta := s.meta.Parse(r)
-	url, err := s.Resolve(ctx, meta, nth)
-	if errors.Is(err, errNthOutOfRange) {
-		if params.Has("nth") {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			fmt.Fprintln(w, `{"error":"nth out of range"}`)
+	url, err := s.Resolve(ctx, meta, query.nth)
+	if errors.Is(err, ErrNthOutOfRange) {
+		if query.nth != 0 {
+			writeError(w, r, http.StatusUnprocessableEntity, ErrNthOutOfRange.Error())
 			return
 		}
-		// No candidate for the default selection: use the normal empty-target response.
+		// No candidate at index zero: use the normal empty-target response.
 		err = nil
 	}
 	if err != nil {
 		tracer.Printf("error: %v\n", err)
 	}
 
-	if traceEnabled {
+	if query.traceEnabled {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		tracer.WriteTo(w)
 	} else if errors.Is(err, ErrInvalidPath) {
-		http.Error(w, "Invalid repository path", http.StatusBadRequest)
+		writeError(w, r, http.StatusBadRequest, "Invalid repository path")
 	} else if err != nil {
-		http.Error(w, "Mirror information is temporarily unavailable", http.StatusServiceUnavailable)
+		writeError(w, r, http.StatusServiceUnavailable, "Mirror information is temporarily unavailable")
 	} else if url == "" {
-		http.Error(w, "No mirror sites are available for this repository", http.StatusNotFound)
+		writeError(w, r, http.StatusNotFound, "No mirror sites are available for this repository")
 	} else {
-		if rawQuery != "" {
-			url += "?" + rawQuery
+		if query.rawQuery != "" {
+			url += "?" + query.rawQuery
 		}
 		http.Redirect(w, r, url, http.StatusFound)
 	}
@@ -315,7 +334,8 @@ type ScoringAPIResponse struct {
 
 func (s *Server) handleScoringAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
-		http.Error(w, fmt.Sprintf("Method %s is not supported", r.Method), http.StatusMethodNotAllowed)
+		w.Header().Set("Allow", "GET")
+		writeError(w, r, http.StatusMethodNotAllowed, fmt.Sprintf("Method %s is not supported", r.Method))
 		return
 	}
 	meta := s.meta.Parse(r)
@@ -329,4 +349,38 @@ func (s *Server) handleScoringAPI(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.errorLogger.Errorf("Error encoding response: %v", err)
 	}
+}
+
+func acceptsJSON(values []string) bool {
+	for _, value := range values {
+		for _, item := range strings.Split(value, ",") {
+			mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(item))
+			if err != nil || mediaType != "application/json" {
+				continue
+			}
+			if quality, ok := params["q"]; ok {
+				q, err := strconv.ParseFloat(quality, 64)
+				if err != nil || !(q > 0 && q <= 1) {
+					continue
+				}
+			}
+			return true
+		}
+	}
+	return false
+}
+
+func writeError(w http.ResponseWriter, r *http.Request, status int, message string) {
+	w.Header().Add("Vary", "Accept")
+	if !acceptsJSON(r.Header.Values("Accept")) {
+		http.Error(w, message, status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(struct {
+		Error string `json:"error"`
+	}{Error: message})
 }
