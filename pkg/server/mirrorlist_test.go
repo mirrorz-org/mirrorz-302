@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -206,6 +207,47 @@ func TestRPMMirrorlistAppendsExpandedRepositoryPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, appStream.Code)
 	assert.Contains(t, appStream.Body.String(), "https://near.example.com/repo/9/AppStream/x86_64/os/\n")
 	assert.Equal(t, 1, queries, "repository tails should not create separate candidate cache entries")
+}
+
+func TestGenericMirrorlistContentNegotiation(t *testing.T) {
+	s, closeServer := newMirrorlistTestServer(t, 300, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(mirrorlistInfluxResponse))
+	}))
+	defer closeServer()
+
+	request := func(method, path, accept string) *httptest.ResponseRecorder {
+		r := mirrorlistRequest(method, path)
+		if accept != "" {
+			r.Header.Set("Accept", accept)
+		}
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		require.Equal(t, http.StatusOK, w.Code)
+		return w
+	}
+	const tail = "repo/dir%20with%20spaces"
+	const path = "/api/mirrorlist/" + tail
+	rpm := request(http.MethodGet, "/api/rpm/mirrorlist/"+tail, "application/json")
+	require.Equal(t, "text/plain; charset=utf-8", rpm.Header().Get("Content-Type"))
+	for _, accept := range []string{"", "*/*", "application/json;q=0"} {
+		plain := request(http.MethodGet, path, accept)
+		assert.Equal(t, rpm.Body.String(), plain.Body.String(), accept)
+		assert.Equal(t, rpm.Header().Get("Content-Type"), plain.Header().Get("Content-Type"))
+		assert.Contains(t, plain.Header().Get("Vary"), "Accept")
+	}
+
+	asJSON := request(http.MethodGet, path, "application/json")
+	require.Equal(t, "application/json", asJSON.Header().Get("Content-Type"))
+	var urls []string
+	require.NoError(t, json.Unmarshal(asJSON.Body.Bytes(), &urls))
+	assert.Equal(t, strings.Split(strings.TrimSuffix(rpm.Body.String(), "\n"), "\n"), urls)
+	assert.Equal(t, strconv.Itoa(asJSON.Body.Len()), asJSON.Header().Get("Content-Length"))
+	assert.Contains(t, asJSON.Header().Get("Vary"), "Accept")
+
+	head := request(http.MethodHead, path, "application/json")
+	assert.Equal(t, asJSON.Header(), head.Header())
+	assert.Empty(t, head.Body.String())
 }
 
 func TestMirrorlistRequestValidation(t *testing.T) {

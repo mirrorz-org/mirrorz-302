@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -116,17 +117,25 @@ func (s *Server) LoadMirrorZD() error {
 	return nil
 }
 
+type mirrorlistEndpoint string
+
+const (
+	genericMirrorlist mirrorlistEndpoint = "mirrorlist/"
+	aptMirrorlist     mirrorlistEndpoint = "apt/mirrorlist/"
+	rpmMirrorlist     mirrorlistEndpoint = "rpm/mirrorlist/"
+)
+
 func (s *Server) buildHandlers() {
 	apiMux := http.NewServeMux()
 	prefix := ApiPrefix + "scoring"
 	apiMux.Handle(prefix, http.StripPrefix(prefix, http.HandlerFunc(s.handleScoringAPI)))
 	apiMux.Handle(prefix+"/", http.StripPrefix(prefix, http.HandlerFunc(s.handleScoringAPI)))
-	aptMirrorlistPrefix := ApiPrefix + "apt/mirrorlist/"
-	apiMux.Handle(aptMirrorlistPrefix, http.StripPrefix(aptMirrorlistPrefix,
-		http.HandlerFunc(s.handleAPTMirrorlist)))
-	rpmMirrorlistPrefix := ApiPrefix + "rpm/mirrorlist/"
-	apiMux.Handle(rpmMirrorlistPrefix, http.StripPrefix(rpmMirrorlistPrefix,
-		http.HandlerFunc(s.handleRPMMirrorlist)))
+	for _, endpoint := range []mirrorlistEndpoint{genericMirrorlist, aptMirrorlist, rpmMirrorlist} {
+		prefix := ApiPrefix + string(endpoint)
+		apiMux.Handle(prefix, http.StripPrefix(prefix, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			s.handleMirrorlist(w, r, endpoint)
+		})))
+	}
 	apiMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusNotFound, "404 page not found")
 	})
@@ -138,15 +147,7 @@ func (s *Server) buildHandlers() {
 	s.handler = mainMux
 }
 
-func (s *Server) handleAPTMirrorlist(w http.ResponseWriter, r *http.Request) {
-	s.handleMirrorlist(w, r, true)
-}
-
-func (s *Server) handleRPMMirrorlist(w http.ResponseWriter, r *http.Request) {
-	s.handleMirrorlist(w, r, false)
-}
-
-func (s *Server) handleMirrorlist(w http.ResponseWriter, r *http.Request, apt bool) {
+func (s *Server) handleMirrorlist(w http.ResponseWriter, r *http.Request, endpoint mirrorlistEndpoint) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		writeError(w, r, http.StatusMethodNotAllowed, fmt.Sprintf("Method %s is not supported", r.Method))
@@ -155,6 +156,7 @@ func (s *Server) handleMirrorlist(w http.ResponseWriter, r *http.Request, apt bo
 
 	meta := s.meta.Parse(r)
 	ctx := context.WithValue(r.Context(), tracing.Key, tracing.NewTracer(false))
+	apt := endpoint == aptMirrorlist
 	officialIndex := apt && r.URL.Query().Get("official_index") == "1"
 	list, err := s.resolveMirrorlist(ctx, meta, apt, officialIndex)
 	if err != nil {
@@ -175,25 +177,40 @@ func (s *Server) handleMirrorlist(w http.ResponseWriter, r *http.Request, apt bo
 		return
 	}
 
-	var body strings.Builder
-	if list.OfficialURL != "" {
-		fmt.Fprintf(&body, "%s\tpriority:0 type:index\n", list.OfficialURL)
+	var body bytes.Buffer
+	contentType := "text/plain; charset=utf-8"
+	vary := "X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host"
+	if endpoint == genericMirrorlist {
+		vary += ", Accept"
 	}
-	for i, url := range list.URLs {
-		if apt {
+	switch {
+	case endpoint == genericMirrorlist && acceptsJSON(r.Header.Values("Accept")):
+		contentType = "application/json"
+		if err := json.NewEncoder(&body).Encode(list.URLs); err != nil {
+			s.errorLogger.Errorf("Error encoding mirrorlist response: %v", err)
+			writeError(w, r, http.StatusInternalServerError, "Error encoding mirrorlist")
+			return
+		}
+	case apt:
+		if list.OfficialURL != "" {
+			fmt.Fprintf(&body, "%s\tpriority:0 type:index\n", list.OfficialURL)
+		}
+		for i, url := range list.URLs {
 			fmt.Fprintf(&body, "%s\tpriority:%d\n", url, i+1)
-		} else {
+		}
+	default:
+		for _, url := range list.URLs {
 			fmt.Fprintln(&body, url)
 		}
 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", fmt.Sprintf("private, max-age=%d", max(s.cacheTime, 0)))
-	w.Header().Set("Vary", "X-Real-IP, X-Forwarded-Proto, X-Forwarded-Host")
+	w.Header().Set("Vary", vary)
 	w.Header().Set("Content-Length", strconv.Itoa(body.Len()))
 	w.WriteHeader(http.StatusOK)
 	if r.Method == http.MethodGet {
-		if _, err := w.Write([]byte(body.String())); err != nil {
+		if _, err := w.Write(body.Bytes()); err != nil {
 			s.errorLogger.Errorf("Error writing mirrorlist response: %v", err)
 		}
 	}

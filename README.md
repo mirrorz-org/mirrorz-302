@@ -270,6 +270,15 @@ network and preference labels; ties favor the endpoint listed first in the site
 configuration. Other endpoints from the same site are omitted, so clients fall
 back to other listed sites if the selected endpoint fails.
 
+`/api/mirrorlist/<cname>` returns the same ranked URLs as the RPM endpoint,
+one per line by default. An optional directory after the cname is appended to
+each URL. Send `Accept: application/json` to receive those URLs as a JSON array
+in the same order.
+
+```shell
+curl -H 'Accept: application/json' https://mirrors.cernet.edu.cn/api/mirrorlist/debian
+```
+
 APT 1.6 or newer can use the APT-specific list through the `mirror+https`
 transport. For example, replace `debian` with the repository cname where
 necessary:
