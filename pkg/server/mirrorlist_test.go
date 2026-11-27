@@ -239,6 +239,7 @@ func TestRepositoryNotFound(t *testing.T) {
 
 	for _, path := range []string{
 		"/missing",
+		"/missing?nth=0",
 		"/api/apt/mirrorlist/missing",
 		"/api/rpm/mirrorlist/missing",
 	} {

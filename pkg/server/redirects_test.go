@@ -54,6 +54,7 @@ func TestNthRedirect(t *testing.T) {
 		{"?x=%2f&%6Eth=0", "https://near.example.com/repo/file?x=%2f"},
 		{"?nth=0&nth=1", "https://near.example.com/repo/file?nth=1"},
 		{"?nth=1&nth=bad", "https://generic.example.com/repo/file?nth=bad"},
+		{"?nth=%ZZ&nth=1", "https://generic.example.com/repo/file?nth=%ZZ"},
 		{"?x=%2f&nth=1&x=abc", "https://generic.example.com/repo/file?x=%2f&x=abc"},
 		{"?nth=2", "https://ustc.example.com/repo/file"},
 		{"", "https://near.example.com/repo/file"},
@@ -65,8 +66,12 @@ func TestNthRedirect(t *testing.T) {
 	}
 	assert.Contains(t, redirectGet(s, "/repo/file?trace=1&nth=1").Body.String(), "nth=1 site=TUNA")
 	for _, query := range []string{"?nth=3", "?nth=3&trace=1"} {
-		outOfRange := redirectGet(s, "/repo/file"+query)
+		r := httptest.NewRequest(http.MethodGet, "/repo/file"+query, nil)
+		r.Header.Set("Accept", "application/json")
+		outOfRange := httptest.NewRecorder()
+		s.ServeHTTP(outOfRange, r)
 		assert.Equal(t, http.StatusUnprocessableEntity, outOfRange.Code)
+		assert.Equal(t, "Accept", outOfRange.Header().Get("Vary"))
 		assert.Equal(t, "application/json", outOfRange.Header().Get("Content-Type"))
 		assert.JSONEq(t, `{"error":"nth out of range"}`, outOfRange.Body.String())
 	}
@@ -74,6 +79,14 @@ func TestNthRedirect(t *testing.T) {
 		invalid := redirectGet(s, "/repo/file?nth="+value)
 		assert.Equal(t, http.StatusBadRequest, invalid.Code)
 		assert.Equal(t, "text/plain; charset=utf-8", invalid.Header().Get("Content-Type"))
+	}
+	for _, accept := range []string{"text/plain", "application/json;q=0"} {
+		r := httptest.NewRequest(http.MethodGet, "/repo/file?nth=3", nil)
+		r.Header.Set("Accept", accept)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+		assert.Equal(t, "text/plain; charset=utf-8", w.Header().Get("Content-Type"))
 	}
 }
 
@@ -156,7 +169,8 @@ func TestPathFiltersDoNotPoisonOtherPathsOrMirrorlists(t *testing.T) {
 	// Both TUNA endpoints are excluded for this path, leaving only one eligible endpoint.
 	outOfRange := redirectGet(s, "/repo/dists/stretch/InRelease?nth=1")
 	assert.Equal(t, http.StatusUnprocessableEntity, outOfRange.Code)
-	assert.JSONEq(t, `{"error":"nth out of range"}`, outOfRange.Body.String())
+	assert.Equal(t, "text/plain; charset=utf-8", outOfRange.Header().Get("Content-Type"))
+	assert.Equal(t, "nth out of range\n", outOfRange.Body.String())
 	request := mirrorlistRequest("GET", "/repo/dists/stretch/InRelease")
 	request.Header.Set("X-Forwarded-Host", "tunanear.mirrors.cernet.edu.cn")
 	w := httptest.NewRecorder()
